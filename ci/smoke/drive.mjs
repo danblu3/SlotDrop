@@ -143,6 +143,13 @@ async function connect() {
   return { browser, page };
 }
 
+// press clicks an element through the page itself (the app's own click handler runs).
+async function press(page, selector) {
+  const el = page.locator(selector).first();
+  await el.waitFor({ state: "attached", timeout: 15000 });
+  await el.evaluate((e) => { e.scrollIntoView({ block: "center" }); e.click(); });
+}
+
 async function shot(page, name) {
   try {
     await page.screenshot({ path: path.join(out, name) });
@@ -189,10 +196,11 @@ async function firstRun() {
   await shot(page, "2-library.png");
 
   // Add a GBA game with a cartridge photo: the game, its label and a shell colour.
-  await page.locator(`.tile[data-rom="1"]`).first().hover();
-  await page.locator(`.tile[data-rom="1"] button.add`).first().click({ force: true });
+  // The + button only shows on hover, and on a small or scaled screen the
+  // tile can be off to the side, so press it directly rather than by mouse.
+  await press(page, `.tile[data-rom="1"] button.add`);
   const toast = await page.waitForSelector("text=is on your card, label and all", { timeout: 60000 }).then(() => true, () => false);
-  check("Says the game was added with its label", toast);
+  if (!check("Says the game was added with its label", toast)) await shot(page, "3-add-failed.png");
   if (!dryRun) {
     const stem = "Test Quest (World)";
     check("Copies the game to Games/GBA", files("Games/GBA").includes(stem + ".gba"), files("Games/GBA").join(", ") || "folder empty");
@@ -205,8 +213,7 @@ async function firstRun() {
   }
 
   // Add a Game Boy Color game that RomM stores as a zip.
-  await page.locator(`.tile[data-rom="3"]`).first().hover();
-  await page.locator(`.tile[data-rom="3"] button.add`).first().click({ force: true });
+  await press(page, `.tile[data-rom="3"] button.add`);
   if (!dryRun) {
     const unzipped = await waitFor("the GBC game", async () => files("Games/GBC").includes("Pocket Garden (World).gbc"), 60000).catch(() => false);
     check("Unzips a zipped game into Games/GBC", unzipped, files("Games/GBC").join(", ") || "folder empty");
@@ -215,7 +222,7 @@ async function firstRun() {
   await shot(page, "3-games-added.png");
 
   // The game panel with the label on the drawn cartridge.
-  await page.locator(".tile", { hasText: "Test Quest" }).first().click();
+  await press(page, `.tile[data-rom="1"]`);
   await page.waitForSelector(".drawer.open", { timeout: 10000 }).catch(() => {});
   await sleep(1000);
   await shot(page, "4-game-panel.png");
