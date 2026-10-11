@@ -164,62 +164,112 @@ function setupScreen() {
     cardBody);
 
   // Step 2: RomM.
-  const form = { useToken: s.useToken };
+  const form = { mode: s.useToken ? "token" : "password" };
   const url = h("input", { class: "input", placeholder: "romm.example.com", value: s.rommUrl || "", spellcheck: false, autocomplete: "off" });
   const user = h("input", { class: "input", placeholder: "Username", value: s.username || "", spellcheck: false, autocomplete: "username" });
   const secret = h("input", { class: "input", type: "password", placeholder: "Password", autocomplete: "current-password" });
   const remember = h("input", { type: "checkbox", checked: true });
-  const httpWarn = h("div", { class: "warnline", hidden: true }, icon("warn"), "This address isn't encrypted (http), so your password or token is sent as plain text on your network. Use the https address if you can.");
+  const httpWarn = h("div", { class: "warnline", hidden: true }, icon("warn"), "This address isn't encrypted (http), so your password or token (including one from phone sign-in) is sent as plain text on your network. Use the https address if you can.");
   url.oninput = () => { httpWarn.hidden = !/^\s*http:\/\//i.test(url.value); };
   url.oninput();
   const userField = h("div", { class: "field" }, h("label", {}, "Username"), user);
   const secretLabel = h("label", {}, "Password");
-  const setMode = (tok) => {
-    form.useToken = tok;
-    userField.hidden = tok;
-    secretLabel.textContent = tok ? "API token" : "Password";
-    secret.placeholder = tok ? "Paste your RomM API token" : "Password";
-    seg.querySelectorAll("button").forEach((b, i) => b.classList.toggle("on", (i === 1) === tok));
+  const secretField = h("div", { class: "field" }, secretLabel, secret);
+  const phoneNote = h("div", { class: "note", hidden: true }, icon("lock"), "SlotDrop shows a QR code. Scan it with your phone, approve SlotDrop in RomM, and you're in. Nothing to type. Needs RomM 5.4 or newer.");
+  const modes = ["password", "token", "phone"];
+  const setMode = (m) => {
+    form.mode = m;
+    userField.hidden = m !== "password";
+    secretField.hidden = m === "phone";
+    phoneNote.hidden = m !== "phone";
+    secretLabel.textContent = m === "token" ? "API token" : "Password";
+    secret.placeholder = m === "token" ? "Paste your RomM API token" : "Password";
+    go.replaceChildren(m === "phone" ? "Show QR code" : "Connect");
+    seg.querySelectorAll("button").forEach((b, i) => b.classList.toggle("on", modes[i] === m));
   };
   const seg = h("div", { class: "segmented" },
-    h("button", { type: "button", onclick: () => setMode(false) }, "Password"),
-    h("button", { type: "button", onclick: () => setMode(true) }, "API token"));
+    h("button", { type: "button", onclick: () => setMode("password") }, "Password"),
+    h("button", { type: "button", onclick: () => setMode("token") }, "API token"),
+    h("button", { type: "button", onclick: () => setMode("phone") }, "Phone (QR)"));
   const err = h("div", { class: "error", hidden: !state.connectError }, state.connectError || "");
   const go = h("button", { class: "btn primary", type: "submit", style: { width: "100%", height: "44px", marginTop: "14px" } }, "Connect");
 
+  const fail = (ex) => {
+    err.textContent = errText(ex);
+    err.hidden = false;
+    go.disabled = false;
+    setMode(form.mode);
+  };
   const submit = async (e) => {
     e.preventDefault();
     err.hidden = true;
     go.disabled = true;
+    if (form.mode === "phone") {
+      go.replaceChildren(h("span", { class: "spinner" }), "Asking RomM for a code…");
+      try {
+        const info = await api().StartPairing(url.value, remember.checked);
+        go.disabled = false;
+        setMode("phone");
+        waitForPhone(info);
+      } catch (ex) { fail(ex); }
+      return;
+    }
     go.replaceChildren(h("span", { class: "spinner" }), "Connecting and loading your library…");
     try {
-      await api().Connect(url.value, user.value, secret.value, !!form.useToken, remember.checked);
+      await api().Connect(url.value, user.value, secret.value, form.mode === "token", remember.checked);
       secret.value = "";
       state.connectError = "";
       await afterConnect();
       render();
+    } catch (ex) { fail(ex); }
+  };
+
+  // While pairing: the QR code takes the form's place until the phone says yes.
+  const pairBox = h("div", { class: "pair", hidden: true });
+  const waitForPhone = async (info) => {
+    formEl.hidden = true;
+    pairBox.hidden = false;
+    const status = h("div", { class: "row muted" }, h("span", { class: "spinner" }), "Waiting for you to approve it in RomM…");
+    let cancelled = false;
+    pairBox.replaceChildren(
+      h("img", { class: "qr", src: info.qr, alt: "QR code that opens RomM's pairing page" }),
+      h("div", { class: "pair-text" },
+        h("b", {}, "Scan this with your phone"),
+        h("p", {}, "It opens your RomM. Sign in there if asked, then approve SlotDrop."),
+        h("p", { class: "muted" }, "Or open ", h("span", { class: "mono" }, info.link.replace(/\?.*$/, "")), " and enter the code"),
+        h("div", { class: "pair-code" }, info.code),
+        status,
+        h("button", { class: "btn ghost small", type: "button", onclick: () => { cancelled = true; api().CancelPairing(); pairBox.hidden = true; formEl.hidden = false; } }, "Cancel")));
+    try {
+      await api().WaitForPairing();
+      state.connectError = "";
+      status.replaceChildren(h("span", { class: "spinner" }), "Approved. Loading your library…");
+      await afterConnect();
+      render();
     } catch (ex) {
-      err.textContent = errText(ex);
-      err.hidden = false;
-      go.disabled = false;
-      go.replaceChildren("Connect");
+      if (cancelled) return;
+      pairBox.hidden = true;
+      formEl.hidden = false;
+      fail(ex);
     }
   };
 
-  let step2Body;
+  let step2Body, formEl;
   if (state.connecting) {
     step2Body = h("div", { class: "row muted" }, h("span", { class: "spinner" }), "Signing in with your saved login…");
   } else if (state.connected) {
     step2Body = null;
   } else {
-    step2Body = h("form", { onsubmit: submit },
+    formEl = h("form", { onsubmit: submit },
       h("div", { class: "field" }, h("label", {}, "RomM address"), url, httpWarn),
       h("div", { style: { marginBottom: "12px" } }, seg),
       userField,
-      h("div", { class: "field" }, secretLabel, secret),
+      secretField,
+      phoneNote,
       h("label", { class: "check" }, remember, "Remember me on this PC"),
       h("div", { class: "note" }, icon("lock"), "Saved encrypted with Windows' own protection. Only your Windows account on this PC can unlock it."),
       err, go);
+    step2Body = h("div", {}, formEl, pairBox);
   }
   const step2 = h("section", { class: "step" + (state.connected ? " done" : "") + (!cardDone ? " locked" : "") },
     h("div", { class: "step-head" },
@@ -227,7 +277,7 @@ function setupScreen() {
       h("div", { class: "step-title" }, "Your RomM library"),
       state.connected && h("span", { class: "step-summary" }, state.connection.url)),
     step2Body);
-  setTimeout(() => setMode(!!s.useToken), 0);
+  setTimeout(() => setMode(form.mode), 0);
 
   return h("div", { class: "setup" },
     h("div", { class: "setup-inner" },

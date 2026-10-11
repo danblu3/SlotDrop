@@ -16,6 +16,9 @@ type Settings struct {
 	// Login is the password or token, encrypted with Windows DPAPI.
 	Login  []byte `json:"login_protected,omitempty"`
 	SDCard string `json:"sd_card"`
+	// DeviceID names this PC to RomM when signing in with a phone, so
+	// pairing again replaces the old token instead of adding a device.
+	DeviceID string `json:"device_id,omitempty"`
 }
 
 func path() (string, error) {

@@ -50,4 +50,5 @@ require (
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
+	rsc.io/qr v0.2.0 // indirect
 )

@@ -157,6 +157,20 @@ func main() {
 		}
 		http.NotFound(w, r)
 	})
+	polls := 0
+	mux.HandleFunc("/api/auth/device/init", func(w http.ResponseWriter, r *http.Request) {
+		polls = 0
+		w.WriteHeader(201)
+		w.Write([]byte(`{"device_code":"dc","user_code":"K7QF-2MXP","verification_path":"/pair/device","verification_path_complete":"/pair/device?user_code=K7QF-2MXP","expires_in":600,"interval":5}`))
+	})
+	mux.HandleFunc("/api/auth/device/token", func(w http.ResponseWriter, r *http.Request) {
+		if polls++; polls < 3 { // approved on the phone after a few polls
+			w.WriteHeader(400)
+			w.Write([]byte(`{"detail":"authorization_pending"}`))
+			return
+		}
+		w.Write([]byte(`{"access_token":"paired","device_id":"d","scopes":["platforms.read","roms.read"],"expires_at":null}`))
+	})
 	romm := httptest.NewServer(mux)
 	log.Println("fake RomM at", romm.URL, "card at", card)
 

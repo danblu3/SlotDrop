@@ -51,7 +51,8 @@ shell colour. One `SlotDrop.exe`, nothing to install.
 ## Prerequisites
 
 - Windows 10 or 11 (the window uses WebView2, which both already have).
-- A RomM server you can sign in to, with a password or an API token.
+- A RomM server you can sign in to, with a password, an API token, or your
+  phone (RomM 5.4 or newer).
   An API token only needs **platforms.read** and **roms.read** (SlotDrop only
   reads). Give it an expiry rather than *Never*; a year is plenty.
 - An SD card set up for Slot.
@@ -63,8 +64,9 @@ shell colour. One `SlotDrop.exe`, nothing to install.
    code-signed; you can check the SHA-256 in the release notes.
 2. If your Slot card is plugged in it's picked up automatically. Otherwise
    click it in the list, or use *Choose folder…*.
-3. Sign in to RomM with your password or an API token. Leave *Remember me*
-   ticked and it signs you in by itself next time.
+3. Sign in to RomM with your password or an API token, or pick *Phone (QR)*,
+   scan the code and approve SlotDrop in RomM on your phone. Leave
+   *Remember me* ticked and it signs you in by itself next time.
 4. Search at the top, then click **+** on a game. To add several, tick the
    circle on each game and press *Add N games* in the bar at the bottom.
 
@@ -99,6 +101,9 @@ The app icon and Windows manifest live in `build/winres` and are compiled into
   can unlock it. It lives in `%APPDATA%\SlotDrop\settings.json`. *Sign out* in
   the RomM menu forgets it.
 - Your login is only ever sent to your RomM server and never written to a log.
+- Signing in with your phone gets a token with only the two read permissions
+  SlotDrop needs. The QR code only ever points at your own RomM address, and
+  you can remove SlotDrop from RomM's device list at any time.
   If your server address is HTTPS, the login is never sent over plain HTTP,
   even after a redirect. Using an `http://` address shows a warning.
 - HTTPS certificates are checked against the Windows certificate store, like

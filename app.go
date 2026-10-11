@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"io"
 	"net/http"
@@ -12,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"rsc.io/qr"
 
 	"slotlabelmaker/internal/core"
 	"slotlabelmaker/internal/label"
@@ -29,6 +33,13 @@ type App struct {
 
 	mu       sync.Mutex
 	settings settings.Settings
+
+	pairMu     sync.Mutex
+	pairing    *romm.Pairing
+	pairClient *romm.Client
+	pairCtx    context.Context
+	pairCancel context.CancelFunc
+	pairSave   bool
 }
 
 func NewApp() *App { return &App{core: core.New(), settings: settings.Load()} }
@@ -189,6 +200,87 @@ func (a *App) ConnectSaved() error {
 		user, pass, token = "", "", string(plain)
 	}
 	return friendly(a.core.Connect(s.RommURL, user, pass, token))
+}
+
+// PairingInfo is what the page shows while waiting for the phone.
+type PairingInfo struct {
+	Code string `json:"code"`
+	Link string `json:"link"`
+	QR   string `json:"qr"` // a data: PNG of Link
+}
+
+// StartPairing asks RomM for a code to approve on your phone. The page shows
+// it as a QR code and then calls WaitForPairing.
+func (a *App) StartPairing(rommURL string, remember bool) (*PairingInfo, error) {
+	a.CancelPairing()
+	client, err := romm.New(rommURL, "", "", "")
+	if err != nil {
+		return nil, friendly(err)
+	}
+	a.mu.Lock()
+	if a.settings.DeviceID == "" {
+		b := make([]byte, 16)
+		_, _ = rand.Read(b)
+		a.settings.DeviceID = "slotdrop-" + hex.EncodeToString(b)
+	}
+	id := a.settings.DeviceID
+	s := a.settings
+	a.mu.Unlock()
+	_ = settings.Save(s)
+	name := "SlotDrop"
+	if host, err := os.Hostname(); err == nil && host != "" {
+		name += " on " + host
+	}
+	p, err := client.StartPairing(id, name)
+	if err != nil {
+		return nil, friendly(err)
+	}
+	code, err := qr.Encode(p.Link, qr.M)
+	if err != nil {
+		return nil, errors.New("Couldn't draw the QR code.")
+	}
+	code.Scale = 8
+	ctx, cancel := context.WithDeadline(context.Background(), p.Expires)
+	a.pairMu.Lock()
+	a.pairing, a.pairClient, a.pairCtx, a.pairCancel, a.pairSave = p, client, ctx, cancel, remember
+	a.pairMu.Unlock()
+	return &PairingInfo{
+		Code: p.UserCode,
+		Link: p.Link,
+		QR:   "data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG()),
+	}, nil
+}
+
+// WaitForPairing waits until the code is approved in RomM, then signs in with
+// the token RomM hands over (saved encrypted, like a typed-in token, if
+// Remember me was ticked).
+func (a *App) WaitForPairing() error {
+	a.pairMu.Lock()
+	p, client, ctx, remember := a.pairing, a.pairClient, a.pairCtx, a.pairSave
+	a.pairMu.Unlock()
+	if p == nil {
+		return errors.New("There's no pairing going on.")
+	}
+	token, err := client.WaitForPairing(ctx, p)
+	a.pairMu.Lock()
+	if a.pairing == p {
+		a.pairing, a.pairClient = nil, nil
+	}
+	a.pairMu.Unlock()
+	if err != nil {
+		return friendly(err)
+	}
+	return a.Connect(client.BaseURL, "", token, true, remember)
+}
+
+// CancelPairing stops waiting for the phone.
+func (a *App) CancelPairing() {
+	a.pairMu.Lock()
+	if a.pairCancel != nil {
+		a.pairCancel()
+	}
+	a.pairing, a.pairClient, a.pairCtx, a.pairCancel = nil, nil, nil, nil
+	a.pairMu.Unlock()
 }
 
 // SignOut disconnects and forgets the saved password or token.

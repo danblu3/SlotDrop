@@ -388,3 +388,12 @@ body.selecting #toasts { bottom: 88px; }
 @keyframes pop { from { opacity: 0; transform: translateY(8px); } }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Phone (QR) sign-in */
+.pair { display: flex; gap: 20px; align-items: flex-start; }
+.pair .qr { width: 196px; height: 196px; border-radius: 12px; background: #fff; padding: 6px; image-rendering: pixelated; flex: none; }
+.pair-text { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.pair-text p { margin: 0; font-size: 13px; color: var(--text-2); }
+.pair-text .mono { font-family: ui-monospace, Consolas, monospace; color: var(--text); word-break: break-all; }
+.pair-code { font-family: ui-monospace, Consolas, monospace; font-size: 24px; font-weight: 700; letter-spacing: 3px; color: var(--text); }
+.pair-text .btn { align-self: flex-start; }
