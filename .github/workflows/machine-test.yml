@@ -32,13 +32,30 @@ jobs:
           go-version-file: go.mod
       - name: Build the app (same command as build.bat)
         run: go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w" -o SlotDrop.exe .
+      # Wails' WebView2 loader deliberately ignores the usual way of turning on
+      # WebView2's debugging port, so the test copy gets a one-line patch to
+      # that library (ci/webview2-test-args.patch). SlotDrop's own code is the same.
+      - name: Build the test copy of the app
+        shell: pwsh
+        run: |
+          go mod download github.com/wailsapp/go-webview2
+          $src = go list -m -f '{{.Dir}}' github.com/wailsapp/go-webview2
+          $dst = Join-Path $env:RUNNER_TEMP go-webview2
+          Copy-Item -Recurse $src $dst
+          Get-ChildItem -Recurse -File $dst | ForEach-Object { $_.IsReadOnly = $false }
+          Push-Location $dst
+          git apply --verbose "$env:GITHUB_WORKSPACE\ci\webview2-test-args.patch"
+          if ($LASTEXITCODE) { exit 1 }
+          Pop-Location
+          go mod edit -replace "github.com/wailsapp/go-webview2=$dst"
+          go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w" -o SlotDrop-test.exe .
       - name: Build the fake RomM
         run: go build -o fakeromm.exe ./ci/fakeromm
       - uses: actions/upload-artifact@v4
         with:
           name: slotdrop-build
           path: |
-            SlotDrop.exe
+            SlotDrop-test.exe
             fakeromm.exe
           retention-days: 7
 
@@ -96,7 +113,7 @@ jobs:
         shell: pwsh
         env:
           SMOKE_SPEC: ${{ matrix.name }}
-          SMOKE_EXE: ${{ github.workspace }}\build-out\SlotDrop.exe
+          SMOKE_EXE: ${{ github.workspace }}\build-out\SlotDrop-test.exe
           SMOKE_FAKE: ${{ github.workspace }}\build-out\fakeromm.exe
           SMOKE_CARD: ${{ matrix.card || format('{0}\slot-card', runner.temp) }}
           SMOKE_OUT: ${{ github.workspace }}\smoke-out
@@ -115,7 +132,7 @@ jobs:
   report:
     name: Results
     needs: machine
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -129,6 +146,7 @@ jobs:
             echo
             echo "| Machine | Result | What went wrong |"
             echo "|---|---|---|"
+            shopt -s nullglob
             for f in results/*/result.json; do
               jq -r '"| \(.spec) | \(if .passed then "✅ Passed" else "❌ Failed" end) | \([.checks[] | select(.ok | not) | .name + (if .detail != "" then " (" + .detail + ")" else "" end)] | join("; ")) |"' "$f"
             done

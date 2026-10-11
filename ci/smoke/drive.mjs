@@ -9,7 +9,7 @@
 //
 // Environment:
 //   SMOKE_SPEC     name of this machine, for the report
-//   SMOKE_EXE      path to SlotDrop.exe
+//   SMOKE_EXE      path to the test build of SlotDrop.exe (see the workflow)
 //   SMOKE_FAKE     path to fakeromm.exe
 //   SMOKE_CARD     scratch folder to use as the SD card (made if missing)
 //   SMOKE_OUT      folder for screenshots and result.json
@@ -111,7 +111,7 @@ async function launchApp() {
   const args = [`--remote-debugging-port=${cdpPort}`];
   if (env.SMOKE_SCALE) args.push(`--force-device-scale-factor=${env.SMOKE_SCALE}`);
   app = spawn(env.SMOKE_EXE, [], {
-    env: { ...env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: args.join(" ") },
+    env: { ...env, SLOTDROP_TEST_WEBVIEW_ARGS: args.join(" ") }, // see ci/webview2-test-args.patch
     stdio: "ignore",
   });
   children.push(app);
@@ -261,6 +261,13 @@ try {
   }
 } catch (e) {
   check("Test ran to the end", false, e.message.split("\n")[0]);
+  if (process.platform === "win32") { // what WebView2 was started with, and what windows are open
+    try {
+      console.log(execFileSync("powershell", ["-NoProfile", "-Command",
+        "Get-CimInstance Win32_Process -Filter \"name='msedgewebview2.exe' or name='SlotDrop-test.exe'\" | Select-Object -First 3 Name, CommandLine | Format-List | Out-String -Width 400;" +
+        "Get-Process | Where-Object MainWindowTitle | Format-Table Name, MainWindowTitle -AutoSize | Out-String"], { encoding: "utf8" }));
+    } catch {}
+  }
   desktopShot("desktop-at-failure.png");
 } finally {
   stopApp();
