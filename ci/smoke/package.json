@@ -1,0 +1,9 @@
+{
+  "name": "slotdrop-machine-test",
+  "private": true,
+  "description": "Drives SlotDrop.exe on CI machines. Not part of the app.",
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "1.56.1"
+  }
+}

@@ -1,0 +1,161 @@
+# Builds SlotDrop.exe once, then runs it on two different Windows machines
+# against a fake RomM and a scratch SD card folder. Each machine signs in,
+# adds two games, checks the game files, label and cart_shell.txt landed on
+# the card, and reopens the app to check the sign-in was remembered.
+# Screenshots from every machine are kept with the run.
+#
+# Nothing here talks to a real RomM: the address and token are made up and
+# only work on the test machine itself.
+name: Machine test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: machine-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build SlotDrop.exe
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build the app (same command as build.bat)
+        run: go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w" -o SlotDrop.exe .
+      # Wails' WebView2 loader deliberately ignores the usual way of turning on
+      # WebView2's debugging port, so the test copy gets a one-line change to
+      # that library: it also adds any switches in SLOTDROP_TEST_WEBVIEW_ARGS.
+      # SlotDrop's own code is the same.
+      - name: Build the test copy of the app
+        shell: pwsh
+        run: |
+          go mod download github.com/wailsapp/go-webview2
+          $src = go list -m -f '{{.Dir}}' github.com/wailsapp/go-webview2
+          $dst = Join-Path $env:RUNNER_TEMP go-webview2
+          Copy-Item -Recurse $src $dst
+          Get-ChildItem -Recurse -File $dst | ForEach-Object { $_.IsReadOnly = $false }
+          $file = Join-Path $dst webviewloader\env_create_options.go
+          $code = Get-Content -Raw $file
+          $line = 'wvep.additionalBrowserArguments = args'
+          if (-not $code.Contains($line)) { Write-Error "go-webview2 changed: can't find '$line'"; exit 1 }
+          $code = $code.Replace($line, 'wvep.additionalBrowserArguments = strings.TrimSpace(args + " " + os.Getenv("SLOTDROP_TEST_WEBVIEW_ARGS"))')
+          $code = $code.Replace("import (", "import (`n`t`"os`"`n`t`"strings`"")
+          [IO.File]::WriteAllText($file, $code)
+          go mod edit -replace "github.com/wailsapp/go-webview2=$dst"
+          go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w" -o SlotDrop-test.exe .
+      - name: Build the fake RomM
+        run: go build -o fakeromm.exe ./ci/fakeromm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slotdrop-build
+          path: |
+            SlotDrop-test.exe
+            fakeromm.exe
+          retention-days: 7
+
+  unit-tests:
+    name: Unit tests on Windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+
+  machine:
+    name: ${{ matrix.name }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GitHub has no plain Windows 10/11 x64 machines. Server 2025 shares
+          # Windows 11 24H2's core, so it stands in for most PCs.
+          - id: win11-x64
+            name: Windows 11 stand-in (Server 2025) at 150% scale
+            os: windows-2025
+            scale: "1.5"
+          # Real Windows 11 on ARM, like Snapdragon laptops: the x64 exe runs under emulation.
+          - id: win11-arm
+            name: Windows 11 on ARM, German, card path with accents
+            os: windows-11-arm
+            culture: de-DE
+            card: 'C:\SD Kärtchen\Slot Karte'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: slotdrop-build
+          path: build-out
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the test driver
+        working-directory: ci/smoke
+        run: npm ci --ignore-scripts
+      - name: Switch Windows to ${{ matrix.culture }}
+        if: matrix.culture
+        shell: pwsh
+        run: |
+          Set-Culture ${{ matrix.culture }}
+          Set-WinHomeLocation -GeoId 94
+          Set-TimeZone -Id "W. Europe Standard Time"
+      - name: Run SlotDrop
+        shell: pwsh
+        env:
+          SMOKE_SPEC: ${{ matrix.name }}
+          SMOKE_EXE: ${{ github.workspace }}\build-out\SlotDrop-test.exe
+          SMOKE_FAKE: ${{ github.workspace }}\build-out\fakeromm.exe
+          SMOKE_CARD: ${{ matrix.card || format('{0}\slot-card', runner.temp) }}
+          SMOKE_OUT: ${{ github.workspace }}\smoke-out
+          SMOKE_SCALE: ${{ matrix.scale }}
+        run: node ci/smoke/drive.mjs
+      - name: Keep screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: machine-${{ matrix.id }}
+          path: |
+            smoke-out/*.png
+            smoke-out/result.json
+          retention-days: 14
+
+  report:
+    name: Results
+    needs: machine
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: machine-*
+          path: results
+      - name: Write the summary
+        run: |
+          {
+            echo "## SlotDrop on $(ls results/*/result.json 2>/dev/null | wc -l) machines"
+            echo
+            echo "| Machine | Result | What went wrong |"
+            echo "|---|---|---|"
+            shopt -s nullglob
+            for f in results/*/result.json; do
+              jq -r '"| \(.spec) | \(if .passed then "✅ Passed" else "❌ Failed" end) | \([.checks[] | select(.ok | not) | .name + (if .detail != "" then " (" + .detail + ")" else "" end)] | join("; ")) |"' "$f"
+            done
+            echo
+            echo "Screenshots for each machine are under Artifacts on this run."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Fail if any machine failed
+        run: test "${{ needs.machine.result }}" = success
