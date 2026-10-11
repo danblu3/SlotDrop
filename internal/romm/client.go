@@ -28,6 +28,10 @@ import (
 // ResourcesPrefix is where RomM serves downloaded artwork.
 const ResourcesPrefix = "/assets/romm/resources/"
 
+// NeededScopes are the API token permissions SlotDrop uses: the platform
+// list, the ROM list, and downloading a ROM. It only ever reads.
+const NeededScopes = "platforms.read and roms.read"
+
 // Download limits, so a bad server can't fill memory.
 const (
 	MaxJSONBytes  = 64 << 20
@@ -162,8 +166,11 @@ func (c *Client) getProgress(raw string, timeout time.Duration, limit int64, pro
 	}
 	defer resp.Body.Close()
 	switch {
-	case resp.StatusCode == 401 || resp.StatusCode == 403:
+	case resp.StatusCode == 401:
 		return nil, errorf("RomM refused the login. Check the username and password, or the API token.")
+	case resp.StatusCode == 403:
+		// Signed in, but not allowed: usually an API token missing a permission.
+		return nil, errorf("RomM signed you in but won't allow this (HTTP 403). If you use an API token, it needs the %s permissions.", NeededScopes)
 	case resp.StatusCode == 404:
 		return nil, errorf("RomM couldn't find that file (HTTP 404). Try a rescan in RomM.")
 	case resp.StatusCode >= 300:

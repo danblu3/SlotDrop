@@ -44,6 +44,8 @@ shell colour. One `SlotDrop.exe`, nothing to install.
 
 - Windows 10 or 11 (the window uses WebView2, which both already have).
 - A RomM server you can sign in to, with a password or an API token.
+  An API token only needs **platforms.read** and **roms.read** (SlotDrop only
+  reads). Give it an expiry rather than *Never*; a year is plenty.
 - An SD card set up for Slot.
 
 ## Using it
