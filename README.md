@@ -67,6 +67,9 @@ shell colour. One `SlotDrop.exe`, nothing to install.
 3. Sign in to RomM with your password or an API token, or pick *Phone (QR)*,
    scan the code and approve SlotDrop in RomM on your phone. Leave
    *Remember me* ticked and it signs you in by itself next time.
+
+   <img src="docs/screenshots/phone-sign-in.png" width="480" alt="Signing in with your phone: a QR code to scan, and a code to type instead">
+
 4. Search at the top, then click **+** on a game. To add several, tick the
    circle on each game and press *Add N games* in the bar at the bottom.
 
