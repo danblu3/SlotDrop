@@ -10,6 +10,7 @@
 package romm
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -379,4 +380,23 @@ func (c *Client) DownloadRom(r *Rom, progress Progress) ([]byte, error) {
 	}
 	return c.getProgress(fmt.Sprintf("%s/api/roms/%d/content/%s", c.BaseURL, r.ID, url.PathEscape(name)),
 		10*time.Minute, MaxROMBytes, progress)
+}
+
+// PlatformIcon fetches the console icon RomM's own web page shows for a
+// platform (served at /assets/platforms/<slug>.ico). Only .ico or PNG data is
+// accepted, so nothing else can be passed off as an icon.
+func (c *Client) PlatformIcon(slug string) ([]byte, error) {
+	for _, r := range slug {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+			return nil, errorf("Not a platform name: %q", slug)
+		}
+	}
+	data, err := c.get(c.BaseURL+"/assets/platforms/"+slug+".ico", 20*time.Second, 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.HasPrefix(data, []byte{0, 0, 1, 0}) && !bytes.HasPrefix(data, []byte("\x89PNG\r\n\x1a\n")) {
+		return nil, errorf("RomM's %s icon isn't an icon file.", slug)
+	}
+	return data, nil
 }

@@ -171,6 +171,9 @@ func main() {
 		}
 		w.Write([]byte(`{"access_token":"paired","device_id":"d","scopes":["platforms.read","roms.read"],"expires_at":null}`))
 	})
+	if dir := os.Getenv("PREVIEW_ICONS"); dir != "" { // a folder of RomM-style <slug>.ico files
+		mux.Handle("/assets/platforms/", http.StripPrefix("/assets/platforms/", http.FileServer(http.Dir(dir))))
+	}
 	romm := httptest.NewServer(mux)
 	log.Println("fake RomM at", romm.URL, "card at", card)
 

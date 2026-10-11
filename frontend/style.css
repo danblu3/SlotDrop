@@ -397,3 +397,8 @@ body.selecting #toasts { bottom: 88px; }
 .pair-text .mono { font-family: ui-monospace, Consolas, monospace; color: var(--text); word-break: break-all; }
 .pair-code { font-family: ui-monospace, Consolas, monospace; font-size: 24px; font-weight: 700; letter-spacing: 3px; color: var(--text); }
 .pair-text .btn { align-self: flex-start; }
+.platform-icon img { width: 100%; height: 100%; object-fit: contain; display: block; }
+/* RomM's icons are square with room around the console, so give them a square box */
+.chip .platform-icon:has(img) { width: 26px; height: 26px; margin: -4px 0; }
+.tile .sub .platform-icon:has(img) { width: 20px; height: 20px; margin: -3px 0; }
+.drawer-head .platform-icon:has(img) { width: 44px; height: 44px; margin-top: -6px; }

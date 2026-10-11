@@ -29,7 +29,25 @@ function h(tag, attrs, ...children) {
   return el;
 }
 const icon = (name, cls = "") => h("span", { class: "icon-wrap " + cls, html: ICONS[name].replace("<svg", '<svg class="icon"') }).firstChild;
-const platformIcon = (key, cls = "") => h("span", { class: `platform-icon p-${key} ${cls}`, html: PLATFORM_ICONS[key] });
+// Console icons: RomM's own when the server has them, else our drawings.
+const rommIcons = {}; // key -> "loading" | true | false
+const rommIconImg = (key) => h("img", { src: `/img/platform/${key}`, alt: "", draggable: false });
+function platformIcon(key, cls = "") {
+  const span = h("span", { class: `platform-icon p-${key} ${cls}` });
+  if (rommIcons[key] === true) span.append(rommIconImg(key));
+  else span.innerHTML = PLATFORM_ICONS[key];
+  if (key !== "ALL" && state.connected && rommIcons[key] === undefined) {
+    rommIcons[key] = "loading";
+    const probe = new Image();
+    probe.onload = () => {
+      rommIcons[key] = true;
+      document.querySelectorAll(`.platform-icon.p-${key}`).forEach((el) => el.replaceChildren(rommIconImg(key)));
+    };
+    probe.onerror = () => { rommIcons[key] = false; };
+    probe.src = `/img/platform/${key}`;
+  }
+  return span;
+}
 
 function mb(bytes) {
   if (!bytes) return "";
@@ -108,6 +126,7 @@ async function boot() {
 
 async function afterConnect() {
   state.connected = true;
+  for (const k in rommIcons) delete rommIcons[k]; // a different server may have different icons
   state.connection = await api().Connection();
   await reload();
 }

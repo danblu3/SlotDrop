@@ -19,6 +19,7 @@ import (
 
 	"slotlabelmaker/internal/core"
 	"slotlabelmaker/internal/label"
+	"slotlabelmaker/internal/platforms"
 	"slotlabelmaker/internal/romm"
 	"slotlabelmaker/internal/sdcard"
 	"slotlabelmaker/internal/secret"
@@ -40,6 +41,9 @@ type App struct {
 	pairCtx    context.Context
 	pairCancel context.CancelFunc
 	pairSave   bool
+
+	iconMu sync.Mutex
+	icons  map[string][]byte // RomM address + platform key -> RomM's icon (nil if it has none)
 }
 
 func NewApp() *App { return &App{core: core.New(), settings: settings.Load()} }
@@ -404,6 +408,33 @@ func (a *App) SetMatch(platform, stem string, romID int) { a.core.SetMatch(platf
 //	/img/cart/<romId>          cartridge photo
 //	/img/label/<GBA>/<stem>    a label already on the card
 //	/img/crop/<romId>?box=...  the label cut from the cartridge photo
+//
+// platformIcon is RomM's own icon for a console, fetched once per server.
+func (a *App) platformIcon(key string) ([]byte, error) {
+	p := platforms.ByKey(key)
+	client := a.core.Client()
+	if p == nil || client == nil {
+		return nil, errors.New("no icon")
+	}
+	id := client.BaseURL + "|" + p.Key
+	a.iconMu.Lock()
+	data, seen := a.icons[id]
+	a.iconMu.Unlock()
+	if !seen {
+		data, _ = client.PlatformIcon(p.RommSlugs[0])
+		a.iconMu.Lock()
+		if a.icons == nil {
+			a.icons = map[string][]byte{}
+		}
+		a.icons[id] = data
+		a.iconMu.Unlock()
+	}
+	if data == nil {
+		return nil, errors.New("no icon")
+	}
+	return data, nil
+}
+
 func (a *App) imageHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.SplitN(strings.TrimPrefix(r.URL.EscapedPath(), "/img/"), "/", 2)
@@ -448,6 +479,10 @@ func (a *App) imageHandler() http.Handler {
 				box = &b
 			}
 			data, err = a.core.CropPNG(id, box)
+		case "platform":
+			// /img/platform/GBA: the console icon from your RomM, if it has one.
+			data, err = a.platformIcon(parts[1])
+			w.Header().Set("Cache-Control", "no-store")
 		case "label":
 			lp := strings.SplitN(parts[1], "/", 2)
 			if len(lp) != 2 {
