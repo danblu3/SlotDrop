@@ -50,7 +50,7 @@ jobs:
           if (-not $code.Contains($line)) { Write-Error "go-webview2 changed: can't find '$line'"; exit 1 }
           $code = $code.Replace($line, 'wvep.additionalBrowserArguments = strings.TrimSpace(args + " " + os.Getenv("SLOTDROP_TEST_WEBVIEW_ARGS"))')
           $code = $code.Replace("import (", "import (`n`t`"os`"`n`t`"strings`"")
-          Set-Content -NoNewline $file $code
+          [IO.File]::WriteAllText($file, $code)
           go mod edit -replace "github.com/wailsapp/go-webview2=$dst"
           go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w" -o SlotDrop-test.exe .
       - name: Build the fake RomM
