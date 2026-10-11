@@ -1,0 +1,32 @@
+# Build outputs
+*.exe
+*.zip
+/dist/
+/release/
+
+# Go
+*.test
+*.out
+/vendor/
+
+# Local scratch and test cards
+/scratch/
+/tmp/
+*.log
+*.rgba
+*.sav
+*.state
+
+# Editors and OS clutter
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Never commit logins or local settings
+settings.json
+.env
+*.pem
+*.key
