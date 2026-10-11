@@ -28,6 +28,8 @@ shell colour. One `SlotDrop.exe`, nothing to install.
 >
 > Use it at your own risk, and keep a backup of your SD card.
 
+![SlotDrop showing the games on an SD card, each drawn as its cartridge](docs/screenshots/your-card.png)
+
 ## What it does
 
 - Browse and search the GBA, Game Boy and Game Boy Color games in your RomM library.
@@ -39,6 +41,12 @@ shell colour. One `SlotDrop.exe`, nothing to install.
 - Pick a shell colour and a Solid, Clear or Glitter finish, redraw the label
   crop, or use your own image.
 - Remove a game from the card (your saves stay) and eject the card safely.
+
+| Pick a game | Tick several and add them at once |
+|---|---|
+| ![A game's panel with its label, shell colour and finish](docs/screenshots/game-panel.png) | ![Three games ticked, with an Add 3 games bar](docs/screenshots/pick-several.png) |
+
+![Pokémon Heart & Soul on a Slot, in the blue shell SlotDrop gave it](docs/screenshots/on-slot.jpg)
 
 ## Prerequisites
 
