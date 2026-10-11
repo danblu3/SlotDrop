@@ -30,3 +30,7 @@ settings.json
 .env
 *.pem
 *.key
+
+# Machine test tools
+node_modules/
+/smoke-out/

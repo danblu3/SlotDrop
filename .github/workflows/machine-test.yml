@@ -1,0 +1,145 @@
+# Builds SlotDrop.exe once, then runs it on five different Windows machines
+# against a fake RomM and a scratch SD card folder. Each machine signs in,
+# adds two games, checks the game files, label and cart_shell.txt landed on
+# the card, and reopens the app to check the sign-in was remembered.
+# Screenshots from every machine are kept with the run.
+#
+# Nothing here talks to a real RomM: the address and token are made up and
+# only work on the test machine itself.
+name: Machine test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: machine-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build SlotDrop.exe
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build the app (same command as build.bat)
+        run: go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w" -o SlotDrop.exe .
+      - name: Build the fake RomM
+        run: go build -o fakeromm.exe ./ci/fakeromm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slotdrop-build
+          path: |
+            SlotDrop.exe
+            fakeromm.exe
+          retention-days: 7
+
+  unit-tests:
+    name: Unit tests on Windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+
+  machine:
+    name: ${{ matrix.name }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: server-2022
+            name: Windows Server 2022
+            os: windows-2022
+          - id: server-2025
+            name: Windows Server 2025
+            os: windows-2025
+          - id: win11-arm
+            name: Windows 11 on ARM (x64 app emulated)
+            os: windows-11-arm
+          - id: scale-150
+            name: Windows Server 2025 at 150% scale
+            os: windows-2025
+            scale: "1.5"
+          - id: german-accents
+            name: German Windows, card folder with spaces and accents
+            os: windows-2022
+            culture: de-DE
+            card: 'C:\SD Kärtchen\Slot Karte'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: slotdrop-build
+          path: build-out
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the test driver
+        working-directory: ci/smoke
+        run: npm ci --ignore-scripts
+      - name: Switch Windows to ${{ matrix.culture }}
+        if: matrix.culture
+        shell: pwsh
+        run: |
+          Set-Culture ${{ matrix.culture }}
+          Set-WinHomeLocation -GeoId 94
+          Set-TimeZone -Id "W. Europe Standard Time"
+      - name: Run SlotDrop
+        shell: pwsh
+        env:
+          SMOKE_SPEC: ${{ matrix.name }}
+          SMOKE_EXE: ${{ github.workspace }}\build-out\SlotDrop.exe
+          SMOKE_FAKE: ${{ github.workspace }}\build-out\fakeromm.exe
+          SMOKE_CARD: ${{ matrix.card || format('{0}\slot-card', runner.temp) }}
+          SMOKE_OUT: ${{ github.workspace }}\smoke-out
+          SMOKE_SCALE: ${{ matrix.scale }}
+        run: node ci/smoke/drive.mjs
+      - name: Keep screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: machine-${{ matrix.id }}
+          path: |
+            smoke-out/*.png
+            smoke-out/result.json
+          retention-days: 14
+
+  report:
+    name: Results
+    needs: machine
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: machine-*
+          path: results
+      - name: Write the summary
+        run: |
+          {
+            echo "## SlotDrop on $(ls results/*/result.json 2>/dev/null | wc -l) machines"
+            echo
+            echo "| Machine | Result | What went wrong |"
+            echo "|---|---|---|"
+            for f in results/*/result.json; do
+              jq -r '"| \(.spec) | \(if .passed then "✅ Passed" else "❌ Failed" end) | \([.checks[] | select(.ok | not) | .name + (if .detail != "" then " (" + .detail + ")" else "" end)] | join("; ")) |"' "$f"
+            done
+            echo
+            echo "Screenshots for each machine are under Artifacts on this run."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Fail if any machine failed
+        run: test "${{ needs.machine.result }}" = success
