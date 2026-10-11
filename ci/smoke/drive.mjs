@@ -111,7 +111,7 @@ async function launchApp() {
   const args = [`--remote-debugging-port=${cdpPort}`];
   if (env.SMOKE_SCALE) args.push(`--force-device-scale-factor=${env.SMOKE_SCALE}`);
   app = spawn(env.SMOKE_EXE, [], {
-    env: { ...env, SLOTDROP_TEST_WEBVIEW_ARGS: args.join(" ") }, // see ci/webview2-test-args.patch
+    env: { ...env, SLOTDROP_TEST_WEBVIEW_ARGS: args.join(" ") }, // see "Build the test copy" in the workflow
     stdio: "ignore",
   });
   children.push(app);

@@ -33,8 +33,9 @@ jobs:
       - name: Build the app (same command as build.bat)
         run: go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w" -o SlotDrop.exe .
       # Wails' WebView2 loader deliberately ignores the usual way of turning on
-      # WebView2's debugging port, so the test copy gets a one-line patch to
-      # that library (ci/webview2-test-args.patch). SlotDrop's own code is the same.
+      # WebView2's debugging port, so the test copy gets a one-line change to
+      # that library: it also adds any switches in SLOTDROP_TEST_WEBVIEW_ARGS.
+      # SlotDrop's own code is the same.
       - name: Build the test copy of the app
         shell: pwsh
         run: |
@@ -43,10 +44,13 @@ jobs:
           $dst = Join-Path $env:RUNNER_TEMP go-webview2
           Copy-Item -Recurse $src $dst
           Get-ChildItem -Recurse -File $dst | ForEach-Object { $_.IsReadOnly = $false }
-          Push-Location $dst
-          git apply --verbose "$env:GITHUB_WORKSPACE\ci\webview2-test-args.patch"
-          if ($LASTEXITCODE) { exit 1 }
-          Pop-Location
+          $file = Join-Path $dst webviewloader\env_create_options.go
+          $code = Get-Content -Raw $file
+          $line = 'wvep.additionalBrowserArguments = args'
+          if (-not $code.Contains($line)) { Write-Error "go-webview2 changed: can't find '$line'"; exit 1 }
+          $code = $code.Replace($line, 'wvep.additionalBrowserArguments = strings.TrimSpace(args + " " + os.Getenv("SLOTDROP_TEST_WEBVIEW_ARGS"))')
+          $code = $code.Replace("import (", "import (`n`t`"os`"`n`t`"strings`"")
+          Set-Content -NoNewline $file $code
           go mod edit -replace "github.com/wailsapp/go-webview2=$dst"
           go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w" -o SlotDrop-test.exe .
       - name: Build the fake RomM
