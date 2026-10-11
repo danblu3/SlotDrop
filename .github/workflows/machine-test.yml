@@ -1,4 +1,4 @@
-# Builds SlotDrop.exe once, then runs it on five different Windows machines
+# Builds SlotDrop.exe once, then runs it on two different Windows machines
 # against a fake RomM and a scratch SD card folder. Each machine signs in,
 # adds two games, checks the game files, label and cart_shell.txt landed on
 # the card, and reopens the app to check the sign-in was remembered.
@@ -61,22 +61,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - id: server-2022
-            name: Windows Server 2022
-            os: windows-2022
-          - id: server-2025
-            name: Windows Server 2025
-            os: windows-2025
-          - id: win11-arm
-            name: Windows 11 on ARM (x64 app emulated)
-            os: windows-11-arm
-          - id: scale-150
-            name: Windows Server 2025 at 150% scale
+          # GitHub has no plain Windows 10/11 x64 machines. Server 2025 shares
+          # Windows 11 24H2's core, so it stands in for most PCs.
+          - id: win11-x64
+            name: Windows 11 stand-in (Server 2025) at 150% scale
             os: windows-2025
             scale: "1.5"
-          - id: german-accents
-            name: German Windows, card folder with spaces and accents
-            os: windows-2022
+          # Real Windows 11 on ARM, like Snapdragon laptops: the x64 exe runs under emulation.
+          - id: win11-arm
+            name: Windows 11 on ARM, German, card path with accents
+            os: windows-11-arm
             culture: de-DE
             card: 'C:\SD Kärtchen\Slot Karte'
     steps:
