@@ -55,6 +55,9 @@ shell colour. One `SlotDrop.exe`, nothing to install.
   phone (RomM 5.4 or newer).
   An API token only needs **platforms.read** and **roms.read** (SlotDrop only
   reads). Give it an expiry rather than *Never*; a year is plenty.
+- Labels are auto cut from RomMs own metadata of `physical.png`, this metadata is optional 
+  and not downloaded by default, so if you have enabled it please make sure you re-scan your items 
+  before using and restart the application.
 - An SD card set up for Slot.
 
 ## Using it
