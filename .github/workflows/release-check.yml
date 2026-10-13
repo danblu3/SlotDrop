@@ -1,0 +1,96 @@
+# One-off check of a published release, the way a stranger would get it:
+# downloads the zip from GitHub Releases on a clean Windows machine, marks it
+# as downloaded from the internet, checks its SHA-256, scans it with Microsoft
+# Defender, then unzips and opens SlotDrop.exe and takes a screenshot.
+name: Release check
+
+on:
+  push:
+    branches: [claude/project-thread-t2wg62]
+    paths: [.github/workflows/release-check.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TAG: v0.1.1
+  ZIP: SlotDrop-v0.1.1-windows-x64.zip
+  ZIP_SHA256: 2f7d9c9eacd4de74e288962c4ac5633d666cbf5f15e9683a77760b4602371026
+
+jobs:
+  fresh:
+    name: Fresh download on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-11-arm]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ci/smoke
+      - name: Download, check and scan the release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dl = Join-Path $env:USERPROFILE Downloads
+          New-Item -ItemType Directory -Force $dl | Out-Null
+          $url = "https://github.com/danblu3/SlotDrop/releases/download/$env:TAG/$env:ZIP"
+          $zip = Join-Path $dl $env:ZIP
+          Invoke-WebRequest $url -OutFile $zip
+          # What a browser adds to a download, so Windows treats it as from the internet.
+          Set-Content -Path $zip -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3`r`nHostUrl=$url"
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          "SHA-256: $hash"
+          if ($hash -ne $env:ZIP_SHA256) { Write-Error "SHA-256 doesn't match the release notes" }
+
+          $dir = Join-Path $dl SlotDrop
+          Expand-Archive $zip $dir -Force
+          # Explorer's Extract All copies the mark onto the files inside.
+          Get-ChildItem $dir -File | ForEach-Object { Set-Content -Path $_.FullName -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3" }
+          Get-ChildItem $dir | Format-Table Name, Length
+
+          $mp = Get-MpComputerStatus
+          "Defender: antivirus $($mp.AntivirusEnabled), real-time $($mp.RealTimeProtectionEnabled), signatures $($mp.AntivirusSignatureVersion)"
+          try { Update-MpSignature -ErrorAction Stop; "Signatures now $((Get-MpComputerStatus).AntivirusSignatureVersion)" } catch { "Signature update failed: $_" }
+          $mpcmd = Get-ChildItem "$env:ProgramData\Microsoft\Windows Defender\Platform\*\MpCmdRun.exe" -ErrorAction SilentlyContinue | Select-Object -Last 1
+          if (-not $mpcmd) { $mpcmd = Get-Item "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" }
+          $verdict = @()
+          foreach ($f in @($zip) + (Get-ChildItem $dir -File).FullName) {
+            $o = & $mpcmd.FullName -Scan -ScanType 3 -File $f -DisableRemediation 2>&1 | Out-String
+            "--- $f (exit $LASTEXITCODE)"; $o
+            $verdict += "| $(Split-Path $f -Leaf) | $(if ($LASTEXITCODE -eq 0) { 'No threats found' } elseif ($LASTEXITCODE -eq 2) { 'THREAT FOUND' } else { "exit $LASTEXITCODE" }) |"
+          }
+          Get-MpThreatDetection -ErrorAction SilentlyContinue | Format-List
+
+          $exe = Join-Path $dir SlotDrop.exe
+          $p = Start-Process $exe -PassThru
+          Start-Sleep 20
+          $p.Refresh()
+          $running = -not $p.HasExited
+          $title = if ($running) { $p.MainWindowTitle } else { "exited with $($p.ExitCode)" }
+          "Running: $running, window: $title"
+          New-Item -ItemType Directory -Force out | Out-Null
+          & ./ci/smoke/screenshot.ps1 -Path (Join-Path (Resolve-Path out) first-run.png)
+          if ($running) { Stop-Process $p -Force }
+
+          @(
+            "## $env:TAG fresh download on ${{ matrix.os }}"
+            ""
+            "- SHA-256 matches the release notes: $($hash -eq $env:ZIP_SHA256)"
+            "- Defender signatures: $((Get-MpComputerStatus).AntivirusSignatureVersion)"
+            "- Opened and still running after 20 s: $running (window: '$title')"
+            ""
+            "| File | Defender |"
+            "|---|---|"
+          ) + $verdict | Add-Content $env:GITHUB_STEP_SUMMARY
+          if (-not $running) { Write-Error "SlotDrop didn't stay open" }
+          if ($verdict -match 'THREAT') { Write-Error "Defender flagged the release" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: first-run-${{ matrix.os }}
+          path: out/*.png
+          retention-days: 14
