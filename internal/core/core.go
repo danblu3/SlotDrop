@@ -4,6 +4,7 @@
 package core
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -35,6 +36,17 @@ type Core struct {
 	imgMu    sync.Mutex
 	carts    map[int]*cartImage
 	cartKeys []int
+	own      *ownPicture
+}
+
+// ownPicture is a picture you chose for a label, kept while you frame it.
+type ownPicture struct {
+	token  string
+	p      *platforms.Platform
+	img    *image.NRGBA
+	shown  []byte // smaller PNG for the editor
+	how    string // how its first box was found
+	mx, my int    // how far the box may stick out past it
 }
 
 type cartImage struct {
@@ -414,6 +426,11 @@ type LabelPlan struct {
 	Suggested sdcard.Shell `json:"suggested"`
 	// CartColour is the plastic's colour in the photo, if it's coloured.
 	CartColour string `json:"cartColour,omitempty"`
+	// For a picture you chose: what the page calls it, and how far past
+	// its edges the box may go.
+	Token   string `json:"token,omitempty"`
+	MarginX int    `json:"marginX,omitempty"`
+	MarginY int    `json:"marginY,omitempty"`
 }
 
 // PlanLabel finds the label on a game's cartridge photo.
@@ -510,10 +527,85 @@ func giveDefaultShell(root, stem string, img *image.NRGBA, box label.Box, how st
 	return sdcard.SetShells(root, map[string]sdcard.Shell{stem: shell})
 }
 
-// LabelFromImage makes a card game's label from a picture you chose. A whole
-// cartridge photo has its label found and cut out; anything else is used as
-// the label, trimmed to the label's shape.
-func (c *Core) LabelFromImage(platform, stem string, data []byte) error {
+// ownMaxSide is how big a picture you chose is kept: plenty for a label
+// 1280 wide, and small enough to frame quickly.
+const ownMaxSide = 2400
+
+// PlanOwnLabel gets a picture you chose ready to frame as a platform's label.
+// A whole cartridge photo starts with its label found; anything else starts
+// with the biggest centred box of the label's shape. Nothing is written
+// until SaveOwnLabel.
+func (c *Core) PlanOwnLabel(platform string, data []byte) (*LabelPlan, error) {
+	p := platforms.ByKey(platform)
+	if p == nil {
+		return nil, fmt.Errorf("unknown console %q", platform)
+	}
+	img, err := label.Decode(data)
+	if err != nil {
+		return nil, err
+	}
+	img = label.Shrink(img, ownMaxSide)
+	aspect := float64(p.LabelW) / float64(p.LabelH)
+	box, how := label.FindBox(img, p)
+	if how != "template" && how != "detected" {
+		box, how = label.FitBox(img, aspect), "fitted"
+	}
+	shown, err := label.EncodePNG(label.Shrink(img, 1000))
+	if err != nil {
+		return nil, err
+	}
+	own := &ownPicture{token: rand.Text(), p: p, img: img, shown: shown, how: how}
+	own.mx, own.my = label.Room(img, aspect)
+	plan := &LabelPlan{
+		Width: img.Bounds().Dx(), Height: img.Bounds().Dy(), Box: box, How: how, Aspect: aspect,
+		Suggested: sdcard.Shell{Colour: label.ShellColour(label.Crop(img, box, p)), Finish: "solid"},
+		Token:     own.token, MarginX: own.mx, MarginY: own.my,
+	}
+	if how == "template" || how == "detected" {
+		plan.CartColour, _ = label.PlasticColour(img, box)
+	}
+	c.imgMu.Lock()
+	c.own = own
+	c.imgMu.Unlock()
+	return plan, nil
+}
+
+// ownPicture is the picture you're framing, if token is still it.
+func (c *Core) ownPicture(token string) (*ownPicture, error) {
+	c.imgMu.Lock()
+	defer c.imgMu.Unlock()
+	if c.own == nil || c.own.token != token {
+		return nil, errors.New("that picture isn't open any more: choose it again")
+	}
+	return c.own, nil
+}
+
+// OwnImage is the picture you're framing, for the editor.
+func (c *Core) OwnImage(token string) ([]byte, error) {
+	own, err := c.ownPicture(token)
+	if err != nil {
+		return nil, err
+	}
+	return own.shown, nil
+}
+
+// OwnCropPNG is the label cut from the picture you're framing at box, for
+// the preview.
+func (c *Core) OwnCropPNG(token string, box label.Box) ([]byte, error) {
+	own, err := c.ownPicture(token)
+	if err != nil {
+		return nil, err
+	}
+	if box, err = label.ClampRoom(box, own.img, own.mx, own.my); err != nil {
+		return nil, err
+	}
+	return label.EncodePNG(label.Crop(own.img, box, own.p))
+}
+
+// SaveOwnLabel writes the picture you framed, cut at box, as a card game's
+// label (and shell colour, if given; nil gives a game with none its usual
+// one).
+func (c *Core) SaveOwnLabel(platform, stem, token string, box label.Box, shell *sdcard.Shell) error {
 	p := platforms.ByKey(platform)
 	root := c.Root()
 	if p == nil || root == "" {
@@ -522,22 +614,37 @@ func (c *Core) LabelFromImage(platform, stem string, data []byte) error {
 	if sdcard.SafeFileName(stem) != stem {
 		return fmt.Errorf("%q isn't a game on the card", stem)
 	}
-	img, err := label.Decode(data)
+	own, err := c.ownPicture(token)
 	if err != nil {
 		return err
 	}
-	box, how := label.FindBox(img, p)
-	if how != "template" && how != "detected" {
-		box = label.FitBox(img, float64(p.LabelW)/float64(p.LabelH))
+	if own.p != p {
+		return fmt.Errorf("that picture was framed for %s, not %s", own.p.Key, p.Key)
 	}
-	out, err := label.EncodePNG(label.Crop(img, box, p))
+	if box, err = label.ClampRoom(box, own.img, own.mx, own.my); err != nil {
+		return err
+	}
+	data, err := label.EncodePNG(label.Crop(own.img, box, p))
 	if err != nil {
 		return err
 	}
-	if err := sdcard.WriteFileSafely(sdcard.LabelPath(root, p, stem), out); err != nil {
+	if err := sdcard.WriteFileSafely(sdcard.LabelPath(root, p, stem), data); err != nil {
 		return fmt.Errorf("couldn't write the label: %v", err)
 	}
-	return giveDefaultShell(root, stem, img, box, how)
+	c.DropOwnLabel(token)
+	if shell == nil {
+		return giveDefaultShell(root, stem, own.img, box, own.how)
+	}
+	return sdcard.SetShells(root, map[string]sdcard.Shell{stem: *shell})
+}
+
+// DropOwnLabel forgets the picture you were framing.
+func (c *Core) DropOwnLabel(token string) {
+	c.imgMu.Lock()
+	if c.own != nil && c.own.token == token {
+		c.own = nil
+	}
+	c.imgMu.Unlock()
 }
 
 // SetShell changes just a game's shell colour.

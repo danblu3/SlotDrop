@@ -80,7 +80,10 @@ shell colour. One `SlotDrop.exe`, nothing to install.
 Click any game to see its cartridge. For games on the card you can pick a shell
 colour (**GBA Grey** is what new games get; Slot draws a game with no colour in
 plain black), choose a finish, redo the label by dragging a box on RomM's
-cartridge photo, or *Use my own image…*. If games on the card have no label,
+cartridge photo, or *Use my own image…* and frame it the same way. The box
+keeps the label's shape: drag it to move it, and drag a corner or use the
+mouse wheel to resize it. On your own image it can go past the edges, which
+come out white. If games on the card have no label,
 *Make labels* does them all. When you're done, the eject button next to the
 card in the top bar makes it safe to pull out.
 

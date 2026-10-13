@@ -201,13 +201,14 @@ func main() {
 		case "MakeMissingLabels":
 			made, probs := app.core.MissingLabels(func(int, int) {})
 			out = MissingResult{made, probs}
-		case "ChooseLabel": // no file dialog in a browser: use a label from the real card
-			var plat, stem string
+		case "ChooseLabel": // no file dialog in a browser: frame $PREVIEW_PICTURE, or a box art
+			var plat string
 			json.Unmarshal(args[0], &plat)
-			json.Unmarshal(args[1], &stem)
-			data, _ := os.ReadFile(filepath.Join(realCard, "Labels/GBA/Pokemon UnBound.png"))
-			err = app.core.LabelFromImage(plat, stem, data)
-			out = err == nil
+			data, readErr := os.ReadFile(os.Getenv("PREVIEW_PICTURE"))
+			if readErr != nil {
+				data = cover(3)
+			}
+			out, err = app.core.PlanOwnLabel(plat, data)
 		case "BrowseForCard":
 			out = ""
 		default:
