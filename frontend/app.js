@@ -796,11 +796,15 @@ async function eject(btn) {
   }
 }
 
-// Re-render the main screen but keep the search box focused.
+// Re-render the main screen but keep the search box focused and the grid and
+// drawer scrolled where they were, so finishing a download doesn't jump to the top.
+const SCROLLERS = [".content", ".drawer-body"];
 function refreshMain() {
   if (!state.card || !state.connected || state.choosingCard) return;
   const focused = document.activeElement && document.activeElement.id === "search";
+  const scrolled = SCROLLERS.map((sel) => { const el = document.querySelector(sel); return el ? el.scrollTop : 0; });
   render();
+  SCROLLERS.forEach((sel, i) => { const el = document.querySelector(sel); if (el) el.scrollTop = scrolled[i]; });
   if (focused) {
     const s = document.getElementById("search");
     s.focus();
@@ -865,6 +869,8 @@ function openDrawer(g) {
   state.editor = null;
   state.pendingShell = null;
   refreshMain();
+  const body = document.querySelector(".drawer-body");
+  if (body) body.scrollTop = 0;
 }
 function closeDrawer() {
   state.drawer = null;
