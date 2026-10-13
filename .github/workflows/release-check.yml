@@ -61,12 +61,18 @@ jobs:
           foreach ($f in @($zip) + (Get-ChildItem $dir -File).FullName) {
             $o = & $mpcmd.FullName -Scan -ScanType 3 -File $f -DisableRemediation 2>&1 | Out-String
             "--- $f (exit $LASTEXITCODE)"; $o
-            $verdict += "| $(Split-Path $f -Leaf) | $(if ($LASTEXITCODE -eq 0) { 'No threats found' } elseif ($LASTEXITCODE -eq 2) { 'THREAT FOUND' } else { "exit $LASTEXITCODE" }) |"
+            $v = if ($o -match 'found no threats') { 'No threats found' } elseif ($o -match 'found \d+ threats') { 'THREAT FOUND' } else { "scan didn't run: $(($o -split "`n" | Select-String Failed | Select-Object -First 1))".Trim() }
+            $verdict += "| $(Split-Path $f -Leaf) | $v |"
           }
           Get-MpThreatDetection -ErrorAction SilentlyContinue | Format-List
 
           $exe = Join-Path $dir SlotDrop.exe
-          $p = Start-Process $exe -PassThru
+          # With the downloaded-from-internet mark, Windows asks before opening it.
+          # Nobody can click that on a test machine, so note it and then open it
+          # the way it runs after a person clicks Run anyway.
+          $blocked = $false
+          try { $p = Start-Process $exe -PassThru -ErrorAction Stop } catch { $blocked = $true; "Windows stopped it to ask first: $($_.Exception.Message)" }
+          if ($blocked) { Unblock-File $exe; $p = Start-Process $exe -PassThru }
           Start-Sleep 20
           $p.Refresh()
           $running = -not $p.HasExited
@@ -81,6 +87,7 @@ jobs:
             ""
             "- SHA-256 matches the release notes: $($hash -eq $env:ZIP_SHA256)"
             "- Defender signatures: $((Get-MpComputerStatus).AntivirusSignatureVersion)"
+            "- Windows asked before opening it (downloaded file): $blocked"
             "- Opened and still running after 20 s: $running (window: '$title')"
             ""
             "| File | Defender |"
