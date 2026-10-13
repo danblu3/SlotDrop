@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Pairing is a "sign in with your phone" request (RomM 5.4's device sign-in).
+// Pairing is a "sign in with your phone" request (RomM 5.3+ device sign-in).
 // SlotDrop asks RomM for a short code, shows it as a QR code, and waits while
 // you approve it in RomM on your phone. RomM then hands over an API token
 // with only the permissions SlotDrop asked for.
@@ -80,7 +80,7 @@ func (c *Client) StartPairing(deviceID, name string) (*Pairing, error) {
 	}
 	switch {
 	case status == 404 || status == 405:
-		return nil, errorf("This RomM doesn't have phone sign-in. It needs RomM 5.4 or newer; use a password or API token instead.")
+		return nil, errorf("This RomM doesn't have phone sign-in. It needs RomM 5.3 or newer; use a password or API token instead.")
 	case status == 429:
 		return nil, errorf("RomM says too many tries. Wait a minute and try again.")
 	case status >= 300:

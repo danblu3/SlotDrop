@@ -52,7 +52,7 @@ shell colour. One `SlotDrop.exe`, nothing to install.
 
 - Windows 10 or 11 (the window uses WebView2, which both already have).
 - A RomM server you can sign in to, with a password, an API token, or your
-  phone (RomM 5.4 or newer).
+  phone (RomM 5.3 or newer).
   An API token only needs **platforms.read** and **roms.read** (SlotDrop only
   reads). Give it an expiry rather than *Never*; a year is plenty.
 - Labels are cut automatically from RomM’s `physical` cartridge photos. RomM doesn’t download these by default:
@@ -62,9 +62,10 @@ shell colour. One `SlotDrop.exe`, nothing to install.
 
 ## Using it
 
-1. Download `SlotDrop.zip` from [Releases](../../releases), unzip it and run
-   `SlotDrop.exe`. Windows SmartScreen may warn you because the app isn't
-   code-signed; you can check the SHA-256 in the release notes.
+1. Download the zip from [Releases](../../releases), unzip it and run
+   `SlotDrop.exe`. The app isn't code-signed, so Windows SmartScreen will
+   probably say *Windows protected your PC*: click **More info**, then
+   **Run anyway**. Each release lists its SHA-256 and a VirusTotal scan.
 2. If your Slot card is plugged in it's picked up automatically. Otherwise
    click it in the list, or use *Choose folder…*.
 3. Sign in to RomM with your password or an API token, or pick *Phone (QR)*,

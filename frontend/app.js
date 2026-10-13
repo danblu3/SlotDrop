@@ -194,7 +194,7 @@ function setupScreen() {
   const userField = h("div", { class: "field" }, h("label", {}, "Username"), user);
   const secretLabel = h("label", {}, "Password");
   const secretField = h("div", { class: "field" }, secretLabel, secret);
-  const phoneNote = h("div", { class: "note", hidden: true }, icon("lock"), "SlotDrop shows a QR code. Scan it with your phone, approve SlotDrop in RomM, and you're in. Nothing to type. Needs RomM 5.4 or newer.");
+  const phoneNote = h("div", { class: "note", hidden: true }, icon("lock"), "SlotDrop shows a QR code. Scan it with your phone, approve SlotDrop in RomM, and you're in. Nothing to type. Needs RomM 5.3 or newer.");
   const modes = ["password", "token", "phone"];
   const setMode = (m) => {
     form.mode = m;
