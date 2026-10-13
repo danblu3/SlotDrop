@@ -340,12 +340,51 @@ func Clamp(b Box, img image.Image) (Box, error) {
 	return b, nil
 }
 
-// Crop cuts out the label and scales it to the size Slot uses.
+// Room is how far a box may stick out past a picture you chose (mx left
+// and right, my above and below): enough to fit the whole picture in the
+// label's shape (width / height), with a little white to spare.
+func Room(img image.Image, aspect float64) (mx, my int) {
+	w, h := float64(img.Bounds().Dx()), float64(img.Bounds().Dy())
+	bw := max(w, h*aspect) * 1.1
+	bh := bw / aspect
+	return int(math.Ceil((bw - w) / 2)), int(math.Ceil((bh - h) / 2))
+}
+
+// ClampRoom is Clamp for a picture you chose: the box may stick out past it
+// by up to mx and my (see Room), but must still cover some of it.
+func ClampRoom(b Box, img image.Image, mx, my int) (Box, error) {
+	w, h := img.Bounds().Dx(), img.Bounds().Dy()
+	if b[0] > b[2] {
+		b[0], b[2] = b[2], b[0]
+	}
+	if b[1] > b[3] {
+		b[1], b[3] = b[3], b[1]
+	}
+	b[0], b[1] = max(-mx, b[0]), max(-my, b[1])
+	b[2], b[3] = min(w+mx, b[2]), min(h+my, b[3])
+	if b[2]-b[0] < 8 || b[3]-b[1] < 8 {
+		return b, fmt.Errorf("the label box is too small")
+	}
+	if b[2] <= 0 || b[3] <= 0 || b[0] >= w || b[1] >= h {
+		return b, fmt.Errorf("the label box is off the picture")
+	}
+	return b, nil
+}
+
+// Crop cuts out the label and scales it to the size Slot uses. Any part of
+// the box past the picture's edge comes out white.
 func Crop(img *image.NRGBA, b Box, p *platforms.Platform) *image.NRGBA {
 	out := image.NewNRGBA(image.Rect(0, 0, p.LabelW, p.LabelH))
 	// Labels are opaque: fill white first so any see-through edge isn't black.
 	draw.Draw(out, out.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
-	draw.CatmullRom.Scale(out, out.Bounds(), img, image.Rect(b[0], b[1], b[2], b[3]), draw.Over, nil)
+	r := image.Rect(b[0], b[1], b[2], b[3])
+	src := img
+	if !r.In(img.Bounds()) {
+		// Copy what there is into a see-through picture the box's size.
+		src = image.NewNRGBA(r)
+		draw.Draw(src, r, img, r.Min, draw.Src)
+	}
+	draw.CatmullRom.Scale(out, out.Bounds(), src, r, draw.Over, nil)
 	return out
 }
 

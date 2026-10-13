@@ -866,7 +866,7 @@ document.addEventListener("keydown", (e) => {
 
 function openDrawer(g) {
   state.drawer = g;
-  state.editor = null;
+  closeEditor();
   state.pendingShell = null;
   refreshMain();
   const body = document.querySelector(".drawer-body");
@@ -874,7 +874,7 @@ function openDrawer(g) {
 }
 function closeDrawer() {
   state.drawer = null;
-  state.editor = null;
+  closeEditor();
   refreshMain();
 }
 
@@ -891,9 +891,10 @@ function drawerEl() {
   // The big picture: the finished cartridge, drawn like Slot shows it.
   const hero = h("div", { class: "hero" });
   const showHero = () => {
-    const box = state.editor ? state.editor.box : null;
+    const ed = state.editor;
     let src = null;
-    if (box) src = `/img/crop/${g.romId}?box=${box.join(",")}`;
+    if (ed && ed.token) src = `/img/owncrop/${ed.token}?box=${ed.box.join(",")}`;
+    else if (ed) src = `/img/crop/${g.romId}?box=${ed.box.join(",")}`;
     else if (g.onCard && g.hasLabel) src = cardLabelURL(g);
     else if (g.romId && g.hasCart) src = `/img/crop/${g.romId}`;
     if (!src && !g.onCard && g.hasCover) {
@@ -996,7 +997,9 @@ function labelGroup(g, shell, showHero) {
   // Label position on the photo.
   if (ed) {
     group.append(boxEditor(g, ed, showHero));
-    group.append(h("p", { class: "faint", style: { margin: "0 0 12px", fontSize: "12.5px" } }, "Drag the box to move it, or a corner to resize. The preview above updates when you let go."));
+    group.append(h("p", { class: "faint", style: { margin: "0 0 12px", fontSize: "12.5px" } },
+      "Drag the box to move it, or a corner or the mouse wheel to resize. The preview above updates when you let go.",
+      ed.token ? " Past the picture's edge comes out white." : ""));
   }
 
   const fromPhoto = g.romId && g.hasCart; // RomM has a cartridge photo to cut the label from
@@ -1011,7 +1014,7 @@ function labelGroup(g, shell, showHero) {
   if (!g.hasLabel && !ed && fromPhoto) {
     actions.append(h("button", { class: "btn primary", onclick: (e) => saveLabel(g, null, state.pendingShell, e.currentTarget) }, icon("wand"), "Make label"));
   } else if (ed) {
-    actions.append(h("button", { class: "btn ghost", onclick: () => { state.editor = null; refreshMain(); } }, "Cancel"));
+    actions.append(h("button", { class: "btn ghost", onclick: () => { closeEditor(); refreshMain(); } }, "Cancel"));
     actions.append(h("button", { class: "btn primary", onclick: (e) => saveLabel(g, ed.box, state.pendingShell, e.currentTarget) }, "Save label"));
   } else if (dirty) {
     actions.append(h("button", { class: "btn primary", onclick: (e) => saveShell(g, shell, e.currentTarget) }, "Save colour"));
@@ -1032,17 +1035,52 @@ async function startEditor(g, btn) {
   refreshMain();
 }
 
+// closeEditor stops framing a label, and lets go of a picture you chose.
+function closeEditor() {
+  if (state.editor && state.editor.token) api().DropOwnLabel(state.editor.token).catch(() => {});
+  state.editor = null;
+}
+
+// boxEditor frames the label on a picture: drag the box to move it, a corner
+// or the wheel to resize it, always in the label's shape so it isn't
+// stretched. On a picture you chose the box may go past its edges (by
+// ed.marginX and ed.marginY) to leave white around it.
 function boxEditor(g, ed, showHero) {
+  const mx = ed.marginX || 0, my = ed.marginY || 0;
+  const L = -mx, T = -my, R = ed.width + mx, B = ed.height + my; // where the box may go
+  const ew = R - L, eh = B - T;
+  const minW = Math.max(16, 16 * ed.aspect);
+  const maxW = Math.min(ew, eh * ed.aspect);
   const boxEl = h("div", { class: "box" }, ["nw", "ne", "sw", "se"].map((k) => h("div", { class: "h", "data-h": k })));
-  const wrap = h("div", { class: "editor" }, h("img", { src: `/img/cart/${g.romId}`, alt: "" }), boxEl);
+  const pic = h("img", {
+    src: ed.token ? `/img/own/${ed.token}` : `/img/cart/${g.romId}`, alt: "",
+    style: { left: (mx / ew) * 100 + "%", top: (my / eh) * 100 + "%", width: (ed.width / ew) * 100 + "%", height: (ed.height / eh) * 100 + "%" },
+  });
+  const wrap = h("div", {
+    class: "editor" + (ed.token ? " loose" : ""),
+    style: { aspectRatio: `${ew} / ${eh}`, width: `min(100%, ${((55 * ew) / eh).toFixed(2)}vh)` },
+  }, pic, boxEl);
   const place = () => {
     const [l, t, r, b] = ed.box;
     Object.assign(boxEl.style, {
-      left: (l / ed.width) * 100 + "%", top: (t / ed.height) * 100 + "%",
-      width: ((r - l) / ed.width) * 100 + "%", height: ((b - t) / ed.height) * 100 + "%",
+      left: ((l - L) / ew) * 100 + "%", top: ((t - T) / eh) * 100 + "%",
+      width: ((r - l) / ew) * 100 + "%", height: ((b - t) / eh) * 100 + "%",
     });
   };
+  // fit puts a box of width w at (l, t), in the label's shape and inside the area.
+  const fit = (l, t, w) => {
+    w = Math.min(Math.max(w, minW), maxW);
+    const hgt = w / ed.aspect;
+    l = Math.min(Math.max(L, l), R - w);
+    t = Math.min(Math.max(T, t), B - hgt);
+    ed.box = [l, t, l + w, t + hgt].map(Math.round);
+    place();
+  };
   place();
+  const done = () => {
+    ed.moved = true;
+    showHero();
+  };
   let drag = null;
   boxEl.addEventListener("pointerdown", (e) => {
     e.preventDefault();
@@ -1052,30 +1090,45 @@ function boxEditor(g, ed, showHero) {
   boxEl.addEventListener("pointermove", (e) => {
     if (!drag) return;
     const rect = wrap.getBoundingClientRect();
-    const dx = ((e.clientX - drag.x) / rect.width) * ed.width;
-    const dy = ((e.clientY - drag.y) / rect.height) * ed.height;
-    let [l, t, r, b] = drag.box;
-    const w = r - l, hgt = b - t;
+    const dx = ((e.clientX - drag.x) / rect.width) * ew;
+    const dy = ((e.clientY - drag.y) / rect.height) * eh;
+    const [l, t, r, b] = drag.box;
     if (drag.handle === "move") {
-      l = Math.min(Math.max(0, l + dx), ed.width - w); t = Math.min(Math.max(0, t + dy), ed.height - hgt);
-      r = l + w; b = t + hgt;
-    } else {
-      if (drag.handle.includes("w")) l = Math.min(Math.max(0, l + dx), r - 10);
-      if (drag.handle.includes("e")) r = Math.max(Math.min(ed.width, r + dx), l + 10);
-      if (drag.handle.includes("n")) t = Math.min(Math.max(0, t + dy), b - 10);
-      if (drag.handle.includes("s")) b = Math.max(Math.min(ed.height, b + dy), t + 10);
+      fit(l + dx, t + dy, r - l);
+      return;
     }
-    ed.box = [l, t, r, b].map(Math.round);
-    place();
+    // A corner: the opposite corner stays put, and the box grows to reach
+    // the pointer in whichever direction it went further.
+    const east = drag.handle.includes("e"), south = drag.handle.includes("s");
+    const ax = east ? l : r, ay = south ? t : b;
+    const wide = east ? r + dx - ax : ax - (l + dx);
+    const tall = south ? b + dy - ay : ay - (t + dy);
+    let w = Math.max(wide, tall * ed.aspect);
+    w = Math.min(Math.max(w, minW), east ? R - ax : ax - L, (south ? B - ay : ay - T) * ed.aspect);
+    fit(east ? ax : ax - w, south ? ay : ay - w / ed.aspect, w);
   });
   const end = () => {
     if (!drag) return;
     drag = null;
-    ed.moved = true;
-    showHero();
+    done();
   };
   boxEl.addEventListener("pointerup", end);
   boxEl.addEventListener("pointercancel", end);
+  // The wheel zooms around the pointer: down shows more of the picture.
+  let settle = 0;
+  wrap.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const rect = wrap.getBoundingClientRect();
+    const px = L + ((e.clientX - rect.left) / rect.width) * ew;
+    const py = T + ((e.clientY - rect.top) / rect.height) * eh;
+    const [l, t, r, b] = ed.box;
+    const w = Math.min(Math.max((r - l) * Math.exp(e.deltaY * 0.0015), minW), maxW);
+    const fx = Math.min(Math.max((px - l) / (r - l), 0), 1);
+    const fy = Math.min(Math.max((py - t) / (b - t), 0), 1);
+    fit(px - fx * w, py - fy * (w / ed.aspect), w);
+    clearTimeout(settle);
+    settle = setTimeout(done, 250);
+  }, { passive: false });
   return wrap;
 }
 
@@ -1083,7 +1136,8 @@ async function saveLabel(g, box, shell, btn) {
   btn.disabled = true;
   btn.replaceChildren(h("span", { class: "spinner" }), "Saving…");
   try {
-    if (box) await api().SaveLabel(g.platform, g.stem, g.romId, box, shell);
+    if (box && state.editor && state.editor.token) await api().SaveOwnLabel(g.platform, g.stem, state.editor.token, box, shell);
+    else if (box) await api().SaveLabel(g.platform, g.stem, g.romId, box, shell);
     else {
       await api().SaveLabel(g.platform, g.stem, g.romId, (await api().PlanLabel(g.romId)).box, shell);
     }
@@ -1098,14 +1152,15 @@ async function saveLabel(g, box, shell, btn) {
   refreshMain();
 }
 
-// Pick a picture on the PC (a label scan, or a whole cartridge photo) for a game's label.
+// Pick a picture on the PC (a label scan, or a whole cartridge photo) for a
+// game's label, then frame it in the editor before saving.
 async function chooseLabel(g, btn) {
   btn.disabled = true;
   try {
-    if (await api().ChooseLabel(g.platform, g.stem)) {
-      state.labelVersion = Date.now();
-      toast(`Saved your label for ${g.title}.`);
-      await reload();
+    const plan = await api().ChooseLabel(g.platform);
+    if (plan) {
+      closeEditor();
+      state.editor = { ...plan, box: plan.box.slice(), moved: false };
       refreshMain();
       return;
     }

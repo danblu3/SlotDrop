@@ -357,30 +357,40 @@ func (a *App) SaveLabel(platform, stem string, romID int, box label.Box, shell *
 	return friendly(a.core.SaveLabel(platform, stem, romID, &box, shell))
 }
 
-// ChooseLabel asks for a picture and makes it the game's label. It returns
-// false if you cancelled.
-func (a *App) ChooseLabel(platform, stem string) (bool, error) {
+// ChooseLabel asks for a picture for a platform's label and gets it ready to
+// frame. It returns nil if you cancelled; SaveOwnLabel writes it.
+func (a *App) ChooseLabel(platform string) (*core.LabelPlan, error) {
 	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title:   "Choose a label picture",
 		Filters: []runtime.FileFilter{{DisplayName: "Pictures (*.png, *.jpg, *.webp)", Pattern: "*.png;*.jpg;*.jpeg;*.webp;*.gif"}},
 	})
 	if err != nil || path == "" {
-		return false, friendly(err)
+		return nil, friendly(err)
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return false, friendly(err)
+		return nil, friendly(err)
 	}
 	defer f.Close()
 	data, err := io.ReadAll(io.LimitReader(f, romm.MaxImageBytes+1))
 	if err != nil {
-		return false, friendly(err)
+		return nil, friendly(err)
 	}
 	if len(data) > romm.MaxImageBytes {
-		return false, errors.New("That picture is too big.")
+		return nil, errors.New("That picture is too big.")
 	}
-	return true, friendly(a.core.LabelFromImage(platform, stem, data))
+	plan, err := a.core.PlanOwnLabel(platform, data)
+	return plan, friendly(err)
 }
+
+// SaveOwnLabel writes the picture you chose, cut at box, as a card game's
+// label. A null shell leaves the game's colour as it is.
+func (a *App) SaveOwnLabel(platform, stem, token string, box label.Box, shell *sdcard.Shell) error {
+	return friendly(a.core.SaveOwnLabel(platform, stem, token, box, shell))
+}
+
+// DropOwnLabel forgets the picture you chose, when you cancel.
+func (a *App) DropOwnLabel(token string) { a.core.DropOwnLabel(token) }
 
 // SetShell changes just a game's shell colour.
 func (a *App) SetShell(stem string, shell sdcard.Shell) error {
@@ -408,6 +418,8 @@ func (a *App) SetMatch(platform, stem string, romID int) { a.core.SetMatch(platf
 //	/img/cart/<romId>          cartridge photo
 //	/img/label/<GBA>/<stem>    a label already on the card
 //	/img/crop/<romId>?box=...  the label cut from the cartridge photo
+//	/img/own/<token>           the picture you chose for a label
+//	/img/owncrop/<token>?box=  the label cut from it
 //
 // platformIcon is RomM's own icon for a console, fetched once per server.
 func (a *App) platformIcon(key string) ([]byte, error) {
@@ -433,6 +445,19 @@ func (a *App) platformIcon(key string) ([]byte, error) {
 		return nil, errors.New("no icon")
 	}
 	return data, nil
+}
+
+// boxParam reads ?box=l,t,r,b, or nil if there isn't one.
+func boxParam(r *http.Request) *label.Box {
+	f := strings.Split(r.URL.Query().Get("box"), ",")
+	if len(f) != 4 {
+		return nil
+	}
+	var b label.Box
+	for i := range f {
+		b[i], _ = strconv.Atoi(f[i])
+	}
+	return &b
 }
 
 func (a *App) imageHandler() http.Handler {
@@ -470,15 +495,18 @@ func (a *App) imageHandler() http.Handler {
 				http.NotFound(w, r)
 				return
 			}
-			var box *label.Box
-			if f := strings.Split(r.URL.Query().Get("box"), ","); len(f) == 4 {
-				var b label.Box
-				for i := range f {
-					b[i], _ = strconv.Atoi(f[i])
-				}
-				box = &b
+			data, err = a.core.CropPNG(id, boxParam(r))
+		case "own":
+			data, err = a.core.OwnImage(parts[1])
+			w.Header().Set("Cache-Control", "no-store")
+		case "owncrop":
+			box := boxParam(r)
+			if box == nil {
+				http.NotFound(w, r)
+				return
 			}
-			data, err = a.core.CropPNG(id, box)
+			data, err = a.core.OwnCropPNG(parts[1], *box)
+			w.Header().Set("Cache-Control", "no-store")
 		case "platform":
 			// /img/platform/GBA: the console icon from your RomM, if it has one.
 			data, err = a.platformIcon(parts[1])

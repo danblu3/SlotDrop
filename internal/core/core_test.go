@@ -250,30 +250,63 @@ func TestUnpack(t *testing.T) {
 	}
 }
 
-func TestLabelFromImage(t *testing.T) {
+func TestOwnLabel(t *testing.T) {
 	root := makeCard(t)
 	c := New()
 	c.OpenCard(root)
-	sq := image.NewNRGBA(image.Rect(0, 0, 400, 400)) // a square picture: trimmed, not stretched
+	sq := image.NewNRGBA(image.Rect(0, 0, 400, 400)) // a black square picture: trimmed, not stretched
+	for i := 3; i < len(sq.Pix); i += 4 {
+		sq.Pix[i] = 255
+	}
 	var buf bytes.Buffer
 	png.Encode(&buf, sq)
-	if err := c.LabelFromImage("GBA", "Pokemon Radical Red", buf.Bytes()); err != nil {
+	plan, err := c.PlanOwnLabel("GBA", buf.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := plan.Box; plan.How != "fitted" || b[0] != 0 || b[2] != 400 || b[1] <= 0 || b[3] >= 400 {
+		t.Fatalf("fit box %v %s", b, plan.How)
+	}
+	if plan.Token == "" || plan.MarginX <= 0 || plan.MarginY < 0 {
+		t.Fatalf("plan %+v", plan)
+	}
+	if _, err := c.OwnImage(plan.Token); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SaveOwnLabel("GBA", "../evil", plan.Token, plan.Box, nil); err == nil {
+		t.Fatal("bad names should be refused")
+	}
+	// Zoomed right out: the whole picture, with white either side.
+	wide := label.Box{-plan.MarginX, -plan.MarginY, 400 + plan.MarginX, 400 + plan.MarginY}
+	if _, err := c.OwnCropPNG(plan.Token, wide); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SaveOwnLabel("GBA", "Pokemon Radical Red", plan.Token, wide, nil); err != nil {
 		t.Fatal(err)
 	}
 	f, _ := os.Open(filepath.Join(root, "Labels/GBA/Pokemon Radical Red.png"))
-	cfg, err := png.DecodeConfig(f)
+	lbl, err := png.Decode(f)
 	f.Close()
-	if err != nil || cfg.Width != 1280 || cfg.Height != 661 {
-		t.Fatalf("label %v %v", cfg, err)
+	if err != nil || lbl.Bounds().Dx() != 1280 || lbl.Bounds().Dy() != 661 {
+		t.Fatalf("label %v %v", lbl.Bounds(), err)
 	}
-	if b := label.FitBox(sq, 1280.0/661); b[0] != 0 || b[2] != 400 || b[1] <= 0 || b[3] >= 400 {
-		t.Fatalf("fit box %v", b)
+	if r, g, b, _ := lbl.At(5, 330).RGBA(); r>>8 != 255 || g>>8 != 255 || b>>8 != 255 {
+		t.Fatalf("past the picture should be white, got %d %d %d", r>>8, g>>8, b>>8)
 	}
-	cart, _ := fakeCart() // a whole cartridge photo: the label is cut out
-	if err := c.LabelFromImage("GBA", "Pokemon Radical Red", cart); err != nil {
-		t.Fatal(err)
+	if r, _, _, _ := lbl.At(640, 330).RGBA(); r>>8 > 10 {
+		t.Fatalf("the picture itself should be black, got %d", r>>8)
 	}
-	if err := c.LabelFromImage("GBA", "../evil", cart); err == nil {
-		t.Fatal("bad names should be refused")
+	if err := c.SaveOwnLabel("GBA", "Pokemon Radical Red", plan.Token, plan.Box, nil); err == nil {
+		t.Fatal("a saved picture should be forgotten")
+	}
+
+	cart, _ := fakeCart() // a whole cartridge photo: starts on its label
+	plan, err = c.PlanOwnLabel("GBA", cart)
+	if err != nil || (plan.How != "template" && plan.How != "detected") {
+		t.Fatalf("cart photo: %+v %v", plan, err)
+	}
+	c.DropOwnLabel(plan.Token)
+	if _, err := c.OwnImage(plan.Token); err == nil {
+		t.Fatal("a dropped picture should be gone")
 	}
 }
