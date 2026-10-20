@@ -195,20 +195,21 @@ func (c *Core) Rom(id int) (*romm.Rom, *platforms.Platform) {
 
 // Game is one tile in the app: a game on the card, in RomM, or both.
 type Game struct {
-	Platform string        `json:"platform"`
-	Title    string        `json:"title"`
-	File     string        `json:"file"`
-	Size     int64         `json:"size"`
-	RomID    int           `json:"romId"`
-	HasCover bool          `json:"hasCover"`
-	HasCart  bool          `json:"hasCart"`
-	Regions  []string      `json:"regions,omitempty"`
-	Added    string        `json:"added,omitempty"` // when it was added to RomM
-	OnCard   bool          `json:"onCard"`
-	Stem     string        `json:"stem,omitempty"` // name on the card
-	HasLabel bool          `json:"hasLabel"`
-	Shell    *sdcard.Shell `json:"shell,omitempty"`
-	Match    string        `json:"match,omitempty"` // how the card game was paired with RomM
+	Platform  string        `json:"platform"`
+	Title     string        `json:"title"`
+	File      string        `json:"file"`
+	Size      int64         `json:"size"`
+	RomID     int           `json:"romId"`
+	HasCover  bool          `json:"hasCover"`
+	HasCart   bool          `json:"hasCart"`
+	Regions   []string      `json:"regions,omitempty"`
+	Added     string        `json:"added,omitempty"` // when it was added to RomM
+	OnCard    bool          `json:"onCard"`
+	Stem      string        `json:"stem,omitempty"` // name on the card
+	HasLabel  bool          `json:"hasLabel"`
+	Shell     *sdcard.Shell `json:"shell,omitempty"`
+	Match     string        `json:"match,omitempty"`     // how the card game was paired with RomM
+	Favourite bool          `json:"favourite,omitempty"` // in Slot's Config/favorites.txt
 }
 
 func (c *Core) ensureMatches() {
@@ -244,8 +245,10 @@ func (c *Core) Library() []Game {
 	var out []Game
 	used := map[int]bool{}
 	shells := map[string]sdcard.Shell{}
+	favs := map[string]bool{}
 	if c.root != "" {
 		shells = sdcard.ReadShells(c.root)
+		favs = sdcard.Favourites(c.root)
 	}
 	for _, p := range platforms.All {
 		if c.root == "" {
@@ -253,7 +256,7 @@ func (c *Core) Library() []Game {
 		}
 		for _, g := range sdcard.FindGames(c.root, p) {
 			item := Game{Platform: p.Key, Title: g.Stem, File: filepath.Base(g.RomPath), Size: g.Size,
-				OnCard: true, Stem: g.Stem, HasLabel: g.HasLabel()}
+				OnCard: true, Stem: g.Stem, HasLabel: g.HasLabel(), Favourite: favs[p.Key+"/"+g.Stem]}
 			if s, ok := shells[g.Stem]; ok {
 				s := s
 				item.Shell = &s
@@ -687,7 +690,7 @@ func (c *Core) RemoveGame(platform, stem, file string) error {
 	if err := os.Remove(game.RomPath); err != nil {
 		return fmt.Errorf("couldn't delete %s: %v", filepath.Base(game.RomPath), err)
 	}
-	if twin { // another file of the same name still uses the label and colour
+	if twin { // another file of the same name still uses the label, colour and favourite
 		c.mu.Lock()
 		c.matches = nil
 		c.mu.Unlock()
@@ -699,11 +702,31 @@ func (c *Core) RemoveGame(platform, stem, file string) error {
 	if err := sdcard.RemoveShell(root, stem); err != nil {
 		return err
 	}
+	if err := sdcard.ForgetGame(root, p, stem); err != nil {
+		return fmt.Errorf("the game is gone but Slot's favourites or recents couldn't be updated: %v", err)
+	}
 	c.mu.Lock()
 	c.matches = nil
 	delete(c.manual, key(p, stem))
 	c.mu.Unlock()
 	return nil
+}
+
+// SetFavourite stars or unstars a game on the card in Slot's favourites.
+func (c *Core) SetFavourite(platform, stem string, on bool) error {
+	p := platforms.ByKey(platform)
+	root := c.Root()
+	if p == nil || root == "" {
+		return errors.New("open the SD card first")
+	}
+	found := false
+	for _, g := range sdcard.FindGames(root, p) {
+		found = found || g.Stem == stem
+	}
+	if !found {
+		return fmt.Errorf("%s isn't on the card", stem)
+	}
+	return sdcard.SetFavourite(root, p, stem, on)
 }
 
 // Eject safely ejects the card so it can be pulled out, then forgets it.

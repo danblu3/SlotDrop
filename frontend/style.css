@@ -405,3 +405,42 @@ body.selecting #toasts { bottom: 88px; }
 .chip .platform-icon:has(img) { width: 26px; height: 26px; margin: -4px 0; }
 .tile .sub .platform-icon:has(img) { width: 20px; height: 20px; margin: -3px 0; }
 .drawer-head .platform-icon:has(img) { width: 44px; height: 44px; margin-top: -6px; }
+
+/* Favourite star in the game panel */
+.drawer-head .fav + .x { margin-left: 2px; }
+.drawer-head .fav .icon { width: 19px; height: 19px; }
+.drawer-head .fav.on { color: #f2c94c; }
+.drawer-head .fav.on svg { fill: #f2c94c; }
+#selectbar .check { gap: 6px; font-size: 12.5px; }
+#selectbar .check .icon { width: 14px; height: 14px; }
+
+/* Hex code you can type */
+.hex-wrap { display: inline-flex; align-items: center; gap: 1px; font: 600 12.5px ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--text-3); }
+.hex-wrap input.hex { width: 8.5ch; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px 4px; color: var(--text-2); font: inherit; }
+.hex-wrap input.hex:hover { border-color: var(--line); }
+.hex-wrap input.hex:focus { outline: none; border-color: var(--accent); color: var(--text); background: var(--bg-2); }
+
+/* Favourite star on games on the card: faint until hovered, yellow when on */
+.tile .star { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; border-radius: 50%; border: 0; display: grid; place-items: center;
+  background: rgba(10,10,14,.55); color: var(--text-2); opacity: 0; transition: opacity .12s, color .12s, transform .12s; }
+.tile .star .icon { width: 17px; height: 17px; }
+.tile:hover .star, .tile .star:focus-visible { opacity: 1; }
+.tile .star:hover { color: #f2c94c; transform: scale(1.08); }
+.tile .star.on { opacity: 1; color: #f2c94c; }
+.tile .star.on svg { fill: #f2c94c; }
+
+/* The favourites shelf: smaller tiles in one row that scrolls sideways */
+.fav-head { display: flex; align-items: center; gap: 8px; }
+.fav-head .icon { width: 18px; height: 18px; color: #f2c94c; fill: #f2c94c; }
+.shelf { display: flex; gap: 12px; overflow-x: auto; padding: 2px 2px 10px; margin: 0 -2px 6px; scroll-snap-type: x proximity; }
+.shelf > .tile { flex: 0 0 138px; scroll-snap-align: start; }
+.shelf > .tile:hover { transform: none; }
+.shelf .tile .meta .sub { display: none; }
+.shelf .tile .meta .title { font-size: 12.5px; }
+.shelf .tile .badge { display: none; }
+.shelf::-webkit-scrollbar { height: 8px; }
+.shelf::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+.shelf .tile .art { aspect-ratio: auto; height: 104px; }
+.shelf .tile .meta { min-height: 0; padding: 8px 10px 10px; }
+.shelf .tile .star { top: 4px; right: 4px; width: 24px; height: 24px; }
+.shelf .tile .star .icon { width: 14px; height: 14px; }

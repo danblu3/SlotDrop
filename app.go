@@ -402,6 +402,11 @@ func (a *App) RemoveGame(platform, stem, file string) error {
 	return friendly(a.core.RemoveGame(platform, stem, file))
 }
 
+// SetFavourite adds a game on the card to Slot's favourites, or takes it off.
+func (a *App) SetFavourite(platform, stem string, on bool) error {
+	return friendly(a.core.SetFavourite(platform, stem, on))
+}
+
 // Eject safely ejects the SD card.
 func (a *App) Eject() error { return friendly(a.core.Eject()) }
 

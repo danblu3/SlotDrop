@@ -389,6 +389,12 @@ function renderGrid() {
   const missing = onCard.filter((g) => !g.hasLabel);
 
   const parts = [];
+  // A little shelf of your favourites, like Slot's own.
+  const favs = onCard.filter((g) => g.favourite);
+  if (favs.length && !terms.length) {
+    parts.push(h("div", { class: "section-head" }, h("h2", { class: "fav-head" }, icon("star"), "Favourites"), h("span", { class: "muted" }, favs.length)));
+    parts.push(h("div", { class: "shelf" }, favs.map(tile)));
+  }
   if (onCard.length) {
     parts.push(h("div", { class: "section-head" }, h("h2", {}, "On your card"), h("span", { class: "muted" }, onCard.length)));
     if (missing.length && !terms.length) {
@@ -618,6 +624,11 @@ function tile(g) {
   }
   if (g.onCard) {
     art.append(g.hasLabel ? h("div", { class: "badge" }, icon("check"), "On card") : h("div", { class: "badge warn" }, icon("warn"), "No label"));
+    art.append(h("button", {
+      class: "star" + (g.favourite ? " on" : ""), title: g.favourite ? "Take off Slot's favourites" : "Add to Slot's favourites",
+      "aria-label": (g.favourite ? "Unfavourite " : "Favourite ") + g.title, "aria-pressed": String(!!g.favourite),
+      onclick: (e) => { e.stopPropagation(); toggleFavourite(g, e.currentTarget); },
+    }, icon("star")));
   }
   // While some games are ticked, clicking a game ticks it too.
   const open = () => (state.selected.size && !g.onCard && !state.busy[id] ? toggleSelected(g) : openDrawer(g));
@@ -655,7 +666,7 @@ function updateBusy(romId) {
 
 // addGame queues one game. With quiet set it reports nothing itself and
 // resolves to "label", "nolabel" or an error message, for addSelected's summary.
-function addGame(g, quiet = false) {
+function addGame(g, quiet = false, favourite = false) {
   if (state.busy[g.romId]) return Promise.resolve(null);
   state.busy[g.romId] = { step: "Waiting", frac: 0 };
   updateBusy(g.romId);
@@ -664,6 +675,7 @@ function addGame(g, quiet = false) {
     try {
       const added = await api().AddGame(g.romId);
       state.labelVersion = Date.now();
+      if (favourite) await api().SetFavourite(g.platform, added.stem, true).catch(() => {});
       result = added.label ? "label" : "nolabel";
       if (!quiet) toast(added.label ? `${g.title} is on your card, label and all.`
         : `${g.title} is on your card, without a label: ${added.labelNote}. Click it to use your own image.`);
@@ -706,6 +718,9 @@ function paintSelectBar() {
     h("span", { class: "count" }, plural(games.length, "game") + " ticked"),
     h("span", { class: "faint" }, bytes ? mb(bytes) + (tooBig ? " · more than the card has free" : "") : ""),
     h("button", { class: "btn ghost small", onclick: clearSelected }, "Clear"),
+    h("label", { class: "check small", title: "Add them to Slot's favourites too" },
+      h("input", { type: "checkbox", checked: !!state.addAsFavourite, onchange: (e) => { state.addAsFavourite = e.target.checked; } }),
+      icon("star"), "Favourite"),
     h("button", { class: "btn primary small", disabled: tooBig, onclick: addSelected }, icon("plus"), "Add " + plural(games.length, "game")),
   ];
   if (!bar) { bar = h("div", { id: "selectbar", role: "toolbar", "aria-label": "Ticked games" }); document.body.append(bar); }
@@ -715,7 +730,8 @@ function paintSelectBar() {
 async function addSelected() {
   const games = [...state.selected.values()];
   clearSelected();
-  const results = await Promise.all(games.map((g) => addGame(g, true)));
+  const fav = state.addAsFavourite;
+  const results = await Promise.all(games.map((g) => addGame(g, true, fav)));
   const labelled = results.filter((r) => r === "label").length;
   const unlabelled = results.filter((r) => r === "nolabel").length;
   const failed = results.filter((r) => r && r !== "label" && r !== "nolabel");
@@ -890,7 +906,7 @@ function drawerEl() {
 
   // The big picture: the finished cartridge, drawn like Slot shows it.
   const hero = h("div", { class: "hero" });
-  const showHero = () => {
+  const showHero = (sh = shell) => {
     const ed = state.editor;
     let src = null;
     if (ed && ed.token) src = `/img/owncrop/${ed.token}?box=${ed.box.join(",")}`;
@@ -900,7 +916,7 @@ function drawerEl() {
     if (!src && !g.onCard && g.hasCover) {
       hero.replaceChildren(h("img", { class: "cover-big", src: `/img/cover/${g.romId}`, alt: "" }));
     } else {
-      hero.replaceChildren(cartSVG(g.platform, shell, src));
+      hero.replaceChildren(cartSVG(g.platform, sh, src));
     }
   };
   showHero();
@@ -942,8 +958,26 @@ function drawerEl() {
       h("div", { class: "drawer-head" },
         platformIcon(g.platform),
         h("div", {}, h("h3", {}, g.title), h("div", { class: "muted" }, g.file)),
+        g.onCard && h("button", {
+          class: "x fav" + (g.favourite ? " on" : ""), title: g.favourite ? "Take off Slot's favourites" : "Add to Slot's favourites",
+          "aria-pressed": String(!!g.favourite), onclick: (e) => toggleFavourite(g, e.currentTarget),
+        }, icon("star")),
         h("button", { class: "x", title: "Close", onclick: closeDrawer }, icon("close"))),
       h("div", { class: "drawer-body" }, body)));
+}
+
+// Stars or unstars a game in Slot's favourites (Config/favorites.txt).
+async function toggleFavourite(g, btn) {
+  btn.disabled = true;
+  try {
+    await api().SetFavourite(g.platform, g.stem, !g.favourite);
+    toast(g.favourite ? `Took ${g.title} off your favourites.` : `${g.title} is in your favourites on Slot.`);
+    await reload();
+    refreshMain();
+  } catch (e) {
+    toast(`Couldn't change the favourite: ${errText(e)}`, true);
+    btn.disabled = false;
+  }
 }
 
 // A real GBA cartridge's grey (Cart Studio's "Automatic"). Slot draws a game
@@ -984,12 +1018,34 @@ function labelGroup(g, shell, showHero) {
   const swatches = PRESETS.map((c) => h("button", {
     class: "swatch" + (c === shell.colour ? " on" : ""), style: { background: "#" + c }, title: "#" + c, onclick: () => pick(c),
   }));
-  const picker = h("input", { type: "color", value: "#" + shell.colour, onchange: (e) => pick(e.target.value.slice(1)) });
+  // Any colour: the cart above recolours live while you drag or type, and the
+  // choice sticks when you let go (or finish typing a full hex code).
+  let frame = 0;
+  const preview = (hex) => {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => showHero({ colour: hex, finish: shell.finish, outline: shell.outline }));
+  };
+  const hexBox = h("input", { class: "hex", value: shell.colour, maxlength: 7, spellcheck: false, "aria-label": "Colour as a hex code" });
+  const picker = h("input", { type: "color", value: "#" + shell.colour,
+    oninput: (e) => { const hex = e.target.value.slice(1); hexBox.value = hex; preview(hex); },
+    onchange: (e) => pick(e.target.value.slice(1)) });
+  hexBox.oninput = () => {
+    const hex = hexBox.value.replace(/^#/, "").toLowerCase();
+    if (/^[0-9a-f]{6}$/.test(hex)) { picker.value = "#" + hex; preview(hex); }
+  };
+  hexBox.onchange = () => setTimeout(() => {
+    // Wait a tick: a change fired by the panel closing must not redraw it.
+    if (!hexBox.isConnected) return;
+    const hex = hexBox.value.replace(/^#/, "").toLowerCase();
+    if (/^[0-9a-f]{6}$/.test(hex)) pick(hex);
+    else { hexBox.value = shell.colour; showHero(); }
+  });
+  hexBox.onkeydown = (e) => { if (e.key === "Enter") hexBox.blur(); };
   swatches.push(h("label", { class: "swatch-pick", title: "Any colour" }, picker, h("span", {}, "+")));
   const finish = h("div", { class: "segmented" }, FINISHES.map(([f, name]) =>
     h("button", { class: shell.finish === f ? "on" : "", onclick: () => pick(shell.colour, f) }, name)));
   group.append(h("div", { class: "shell-row" }, black, fromCart, fromLabel, finish));
-  group.append(h("div", { class: "shell-row" }, swatches, h("span", { class: "hex" }, "#" + shell.colour)));
+  group.append(h("div", { class: "shell-row" }, swatches, h("label", { class: "hex-wrap" }, "#", hexBox)));
   if (!g.shell && !state.pendingShell) {
     group.append(h("p", { class: "faint", style: { margin: "-6px 0 12px", fontSize: "12.5px" } }, "No colour on the card yet, so Slot shows it in plain black. Click GBA Grey, then save, to fix that."));
   }
